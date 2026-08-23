@@ -1,0 +1,140 @@
+{
+  "name": "pdf-viewer-editor",
+  "displayName": "PDF Viewer & Editor",
+  "description": "View, edit, annotate, OCR, organize, and export PDF documents directly in Visual Studio Code.",
+  "version": "0.0.1",
+  "publisher": "suzdalenko-dev",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/suzdalenko-dev/pdf-viewer-editor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/suzdalenko-dev/pdf-viewer-editor/issues"
+  },
+  "homepage": "https://github.com/suzdalenko-dev/pdf-viewer-editor#readme",
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "pdf",
+    "viewer",
+    "editor",
+    "ocr",
+    "annotation",
+    "redaction"
+  ],
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onCustomEditor:pdfViewerEditor.editor",
+    "onCommand:pdfViewerEditor.openWith"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "PDF JavaScript actions are disabled. Documents are processed locally."
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "pdfViewerEditor.editor",
+        "displayName": "PDF Viewer & Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.pdf"
+          },
+          {
+            "filenamePattern": "*.PDF"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "pdfViewerEditor.openWith",
+        "title": "Open with PDF Viewer & Editor",
+        "category": "PDF Viewer & Editor",
+        "icon": "$(file-pdf)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "pdfViewerEditor.openWith",
+          "when": "resourceExtname == .pdf || resourceExtname == .PDF",
+          "group": "navigation@20"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PDF Viewer & Editor",
+      "properties": {
+        "pdfViewerEditor.defaultZoom": {
+          "type": "number",
+          "default": 1.25,
+          "minimum": 0.25,
+          "maximum": 5,
+          "description": "Default PDF page zoom factor."
+        },
+        "pdfViewerEditor.maxRenderPixels": {
+          "type": "number",
+          "default": 24000000,
+          "minimum": 1000000,
+          "maximum": 100000000,
+          "description": "Maximum number of pixels used to render a page."
+        },
+        "pdfViewerEditor.defaultSaveMode": {
+          "type": "string",
+          "enum": [
+            "incremental",
+            "clean"
+          ],
+          "default": "incremental",
+          "enumDescriptions": [
+            "Preserve the original file and append changes.",
+            "Garbage-collect and compress the complete PDF."
+          ],
+          "description": "Default serialization mode used while editing."
+        },
+        "pdfViewerEditor.ocrLanguageDataUrl": {
+          "type": "string",
+          "default": "https://tessdata.projectnaptha.com/4.0.0_best_int",
+          "description": "Optional Tesseract language-data URL for OCR languages other than bundled Spanish and English."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "prepare": "node scripts/copy-vendor.js",
+    "lint": "eslint .",
+    "typecheck": "tsc -p jsconfig.json --noEmit",
+    "test": "node --test",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "vscode:prepublish": "npm run prepare && npm run check",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/spa": "1.0.0",
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.9.2",
+    "eslint": "^9.39.0",
+    "fabric": "7.4.0",
+    "mupdf": "1.28.0",
+    "tesseract.js": "7.0.0",
+    "tesseract.js-core": "7.0.0",
+    "typescript": "^5.9.0"
+  }
+}
