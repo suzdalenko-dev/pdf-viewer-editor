@@ -19,19 +19,6 @@ function copyFile(source, destination) {
   fs.copyFileSync(source, destination);
 }
 
-function copyMatchingFiles(sourceDirectory, destinationDirectory, matcher) {
-  ensureDirectory(destinationDirectory);
-
-  for (const fileName of fs.readdirSync(sourceDirectory)) {
-    if (matcher(fileName)) {
-      copyFile(
-        path.join(sourceDirectory, fileName),
-        path.join(destinationDirectory, fileName)
-      );
-    }
-  }
-}
-
 function copyVendors() {
   fs.rmSync(vendorRoot, { recursive: true, force: true });
 
@@ -58,48 +45,6 @@ function copyVendors() {
     path.join(fabricRoot, 'LICENSE'),
     path.join(fabricDestination, 'LICENSE')
   );
-
-  const tesseractRoot = path.join(projectRoot, 'node_modules', 'tesseract.js');
-  const tesseractDestination = path.join(vendorRoot, 'tesseract');
-  for (const fileName of ['tesseract.min.js', 'worker.min.js']) {
-    copyFile(
-      path.join(tesseractRoot, 'dist', fileName),
-      path.join(tesseractDestination, fileName)
-    );
-  }
-  copyFile(
-    path.join(tesseractRoot, 'LICENSE.md'),
-    path.join(tesseractDestination, 'LICENSE')
-  );
-
-  const tesseractCoreRoot = path.join(projectRoot, 'node_modules', 'tesseract.js-core');
-  const tesseractCoreDestination = path.join(tesseractDestination, 'core');
-  copyMatchingFiles(
-    tesseractCoreRoot,
-    tesseractCoreDestination,
-    (fileName) => fileName.startsWith('tesseract-core') && (
-      fileName.endsWith('.js') || fileName.endsWith('.wasm')
-    )
-  );
-  copyFile(
-    path.join(tesseractCoreRoot, 'LICENSE'),
-    path.join(tesseractCoreDestination, 'LICENSE')
-  );
-
-  const languageDestination = path.join(tesseractDestination, 'languages');
-  for (const language of ['spa', 'eng']) {
-    copyFile(
-      path.join(
-        projectRoot,
-        'node_modules',
-        '@tesseract.js-data',
-        language,
-        '4.0.0_best_int',
-        `${language}.traineddata.gz`
-      ),
-      path.join(languageDestination, `${language}.traineddata.gz`)
-    );
-  }
 
   console.log('Vendor assets copied to media/vendor.');
 }

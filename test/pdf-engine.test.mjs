@@ -32,6 +32,41 @@ function createOnePagePdf(saveOptions = 'garbage=4,compress=yes') {
   return bytes;
 }
 
+function createFlowingTextPdf() {
+  const document = new mupdf.PDFDocument();
+  const resources = document.newDictionary();
+  const fonts = document.newDictionary();
+  const font = new mupdf.Font('Helvetica');
+  const fontReference = document.addSimpleFont(font, 'Latin');
+  fonts.put('F0', fontReference);
+  resources.put('Font', fonts);
+  const contents = [
+    'BT /F0 12 Tf',
+    '30 365 Td (First paragraph has enough words) Tj',
+    '0 -15 Td (to occupy two original lines.) Tj',
+    'ET',
+    'BT /F0 12 Tf',
+    '30 285 Td (Second paragraph must move down.) Tj',
+    'ET',
+    'BT /F0 12 Tf',
+    '30 235 Td (Third paragraph follows the flow.) Tj',
+    'ET'
+  ].join('\n');
+  const page = document.addPage([0, 0, 300, 420], 0, resources, contents);
+  document.insertPage(-1, page);
+  const buffer = document.saveToBuffer('garbage=4,compress=yes');
+  const bytes = new Uint8Array(buffer.asUint8Array()).slice();
+
+  buffer.destroy();
+  page.destroy();
+  fontReference.destroy();
+  font.destroy();
+  fonts.destroy();
+  resources.destroy();
+  document.destroy();
+  return bytes;
+}
+
 test('password-protected PDFs require and accept authentication', () => {
   const engine = new PdfEngine();
   try {
@@ -154,6 +189,105 @@ test('page management and export preserve valid PDF documents', () => {
     assert.deepEqual([...png.slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
     engine.deletePage(1);
     assert.equal(engine.countPages(), 3);
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('text blocks reflow, move following content, and remain searchable', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createFlowingTextPdf());
+    const originalModel = engine.getPageModel(0);
+    const firstBlock = originalModel.textBlocks.find((block) => block.text.includes('First paragraph'));
+    const originalSecondLine = originalModel.textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(firstBlock);
+    assert.ok(originalSecondLine);
+
+    const editResult = engine.editTextBlock(0, firstBlock.index, {
+      text: 'Edited flowing paragraph now contains substantially more words so it wraps onto several lines and creates real space below itself.',
+      fontFamily: 'Helvetica',
+      fontSize: 20,
+      color: [0.1, 0.2, 0.7]
+    });
+    assert.ok(editResult.delta > 0);
+    assert.equal(engine.search('First paragraph').length, 0);
+    assert.equal(engine.search('Edited flowing').length, 1);
+
+    const editedModel = engine.getPageModel(0);
+    const shiftedSecondLine = editedModel.textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(shiftedSecondLine.rect[1] > originalSecondLine.rect[1]);
+
+    const editedBlock = editedModel.textBlocks.find((block) => block.text.includes('Edited flowing'));
+    assert.ok(editedBlock);
+    const secondBeforeDelete = shiftedSecondLine.rect[1];
+    engine.editTextBlock(0, editedBlock.index, { text: '' });
+    assert.equal(engine.search('Edited flowing').length, 0);
+    const secondAfterDelete = engine.getPageModel(0).textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(secondAfterDelete.rect[1] < secondBeforeDelete);
+
+    const saved = engine.serialize('clean');
+    const reopened = new PdfEngine();
+    try {
+      reopened.load(saved);
+      assert.equal(reopened.search('Second paragraph').length, 1);
+      assert.equal(reopened.search('Edited flowing').length, 0);
+    } finally {
+      reopened.destroy();
+    }
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('text insertion, free positioning, and editable tables work as PDF objects', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createFlowingTextPdf());
+    const originalSecond = engine.getPageModel(0).textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    engine.insertTextBlock(0, [30, 90, 250, 90], {
+      text: 'New text placed anywhere on the page.',
+      fontSize: 14,
+      fontFamily: 'Times-Roman'
+    });
+    assert.equal(engine.search('New text placed').length, 1);
+    const insertedModel = engine.getPageModel(0);
+    const shiftedSecond = insertedModel.textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(shiftedSecond.rect[1] > originalSecond.rect[1]);
+
+    const insertedBlock = insertedModel.textBlocks.find((block) =>
+      block.text.includes('New text placed')
+    );
+    engine.moveTextBlock(0, insertedBlock.index, [80, 55, 250, 80]);
+    const movedLine = engine.getPageModel(0).textLines.find((line) =>
+      line.text.includes('New text placed')
+    );
+    assert.ok(movedLine.rect[0] >= 79);
+
+    engine.addTable(0, [30, 250, 270, 350], 3, 4);
+    let table = engine.getPageModel(0).annotations.find((annotation) => annotation.table);
+    assert.deepEqual(
+      { rows: table.table.rows, columns: table.table.columns },
+      { rows: 3, columns: 4 }
+    );
+    engine.updateTable(0, table.index, [35, 245, 265, 355], 4, 2);
+    table = engine.getPageModel(0).annotations.find((annotation) => annotation.table);
+    assert.deepEqual(
+      { rows: table.table.rows, columns: table.table.columns },
+      { rows: 4, columns: 2 }
+    );
+    engine.deleteAnnotation(0, table.index);
+    assert.equal(engine.getPageModel(0).annotations.some((annotation) => annotation.table), false);
   } finally {
     engine.destroy();
   }

@@ -9,11 +9,15 @@ import {
 
 const DEFAULT_TEXT_PROPERTIES = Object.freeze({
   font: 'Helv',
+  fontFamily: 'Helvetica',
   fontSize: 12,
   color: [0, 0, 0],
   alignment: 0,
+  bold: false,
+  italic: false,
   opacity: 1
 });
+const TABLE_SUBJECT = 'PDF Viewer Editor Table';
 
 export class PdfEngine {
   constructor() {
@@ -160,31 +164,17 @@ export class PdfEngine {
     try {
       const structuredText = page.toStructuredText('preserve-spans,preserve-images');
       let parsed;
+      let textBlocks;
       try {
         parsed = JSON.parse(structuredText.asJSON());
+        textBlocks = extractTextBlocks(structuredText);
       } finally {
         structuredText.destroy();
       }
 
-      const textLines = [];
       const images = [];
       for (const block of parsed.blocks || []) {
-        if (block.type === 'text') {
-          for (const line of block.lines || []) {
-            textLines.push({
-              text: String(line.text || ''),
-              rect: rectFromBbox(line.bbox || block.bbox),
-              baseline: [Number(line.x || 0), Number(line.y || 0)],
-              font: {
-                name: String(line.font?.name || 'Helvetica'),
-                family: String(line.font?.family || 'sans-serif'),
-                weight: String(line.font?.weight || 'normal'),
-                style: String(line.font?.style || 'normal'),
-                size: Number(line.font?.size || 12)
-              }
-            });
-          }
-        } else if (block.type === 'image') {
+        if (block.type === 'image') {
           images.push({
             rect: rectFromBbox(block.bbox),
             width: Number(block.width || 0),
@@ -195,7 +185,8 @@ export class PdfEngine {
 
       return {
         bounds: [...page.getBounds()],
-        textLines,
+        textBlocks,
+        textLines: textBlocks.flatMap((block) => block.lines),
         images,
         annotations: this.readAnnotations(page),
         widgets: this.readWidgets(page)
@@ -221,13 +212,16 @@ export class PdfEngine {
             defaultAppearance = null;
           }
         }
+        const contents = safeCall(() => annotation.getContents(), '');
+        const subject = safeCall(() => annotation.getSubject(), '');
         return {
           index,
           type,
           rect: [...rect],
-          contents: safeCall(() => annotation.getContents(), ''),
+          contents,
           author: safeCall(() => annotation.getAuthor(), ''),
-          subject: safeCall(() => annotation.getSubject(), ''),
+          subject,
+          table: parseTableMetadata(type, subject, contents),
           color: safeCall(() => [...annotation.getColor()], []),
           interiorColor: annotation.hasInteriorColor()
             ? safeCall(() => [...annotation.getInteriorColor()], [])
@@ -323,6 +317,367 @@ export class PdfEngine {
         }
       });
     });
+  }
+
+  /**
+   * Replaces one extracted PDF text block with static, searchable page content.
+   * The text is wrapped to the original block width and every text block below it
+   * in the same visual flow is moved by the resulting height difference.
+   */
+  editTextBlock(pageIndex, blockIndex, properties = {}) {
+    const model = this.getPageModel(pageIndex);
+    const block = model.textBlocks.find((candidate) => candidate.index === blockIndex);
+    if (!block) {
+      throw new Error('The selected text block no longer exists. Select it again.');
+    }
+
+    const values = normalizeBlockProperties(block, properties);
+    const layout = layoutTextBlock(block.rect, values, block.metrics, block);
+    const oldHeight = Math.max(0, block.rect[3] - block.rect[1]);
+    const delta = layout.height - oldHeight;
+    const followingBlocks = findFollowingBlocks(model.textBlocks, block.rect, block.index);
+    const shiftedEntries = followingBlocks.flatMap((followingBlock) =>
+      textEntriesForExistingBlock(followingBlock, delta)
+    );
+
+    this.withOperation(values.text ? 'Edit text block' : 'Delete text block', () => {
+      this.withPage(pageIndex, (page) => {
+        for (const sourceBlock of [block, ...followingBlocks]) {
+          this.removeContentInRect(page, expandRect(sourceBlock.rect, 0.35), {
+            images: false,
+            lineArt: false,
+            text: true
+          });
+        }
+
+        const entries = values.text
+          ? [...layout.entries, ...shiftedEntries]
+          : shiftedEntries;
+        const maximumBottom = Math.max(
+          values.text ? block.rect[1] + layout.height : block.rect[1],
+          ...followingBlocks.map((candidate) => candidate.rect[3] + delta)
+        );
+        this.extendPageToFit(page, maximumBottom);
+        this.appendStaticText(page, entries);
+      });
+    });
+
+    return {
+      delta,
+      shiftedBlocks: followingBlocks.length,
+      rect: [block.rect[0], block.rect[1], block.rect[2], block.rect[1] + layout.height]
+    };
+  }
+
+  /**
+   * Inserts a new static text block and makes room by moving intersecting text
+   * blocks and all lower blocks in the same visual column.
+   */
+  insertTextBlock(pageIndex, rect, properties = {}) {
+    const model = this.getPageModel(pageIndex);
+    const normalizedRect = normalizeRect(rect);
+    const seedBlock = {
+      font: {
+        editableFamily: 'Helvetica',
+        bold: false,
+        italic: false,
+        size: 12
+      },
+      color: [0, 0, 0],
+      alignment: 0,
+      text: '',
+      visualLines: [],
+      metrics: defaultTextMetrics(12)
+    };
+    const values = normalizeBlockProperties(seedBlock, properties);
+    if (!values.text.trim()) {
+      return { delta: 0, shiftedBlocks: 0, rect: normalizedRect };
+    }
+
+    const width = Math.max(48, normalizedRect[2] - normalizedRect[0]);
+    const anchorRect = [
+      normalizedRect[0],
+      normalizedRect[1],
+      normalizedRect[0] + width,
+      normalizedRect[1]
+    ];
+    const layout = layoutTextBlock(anchorRect, values, defaultTextMetrics(values.fontSize));
+    const spacing = Math.max(4, values.fontSize * 0.4);
+    const delta = layout.height + spacing;
+    const followingBlocks = findBlocksAtOrBelow(model.textBlocks, anchorRect);
+    const shiftedEntries = followingBlocks.flatMap((followingBlock) =>
+      textEntriesForExistingBlock(followingBlock, delta)
+    );
+
+    this.withOperation('Add text block', () => {
+      this.withPage(pageIndex, (page) => {
+        for (const sourceBlock of followingBlocks) {
+          this.removeContentInRect(page, expandRect(sourceBlock.rect, 0.35), {
+            images: false,
+            lineArt: false,
+            text: true
+          });
+        }
+
+        const maximumBottom = Math.max(
+          anchorRect[1] + layout.height,
+          ...followingBlocks.map((candidate) => candidate.rect[3] + delta)
+        );
+        this.extendPageToFit(page, maximumBottom);
+        this.appendStaticText(page, [...layout.entries, ...shiftedEntries]);
+      });
+    });
+
+    return {
+      delta,
+      shiftedBlocks: followingBlocks.length,
+      rect: [anchorRect[0], anchorRect[1], anchorRect[2], anchorRect[1] + layout.height]
+    };
+  }
+
+  moveTextBlock(pageIndex, blockIndex, targetRect) {
+    const model = this.getPageModel(pageIndex);
+    const block = model.textBlocks.find((candidate) => candidate.index === blockIndex);
+    if (!block) {
+      throw new Error('The selected text block no longer exists. Select it again.');
+    }
+
+    const normalizedTarget = normalizeRect(targetRect);
+    const deltaX = normalizedTarget[0] - block.rect[0];
+    const deltaY = normalizedTarget[1] - block.rect[1];
+    const entries = textEntriesForExistingBlock(block, deltaY, deltaX);
+    this.withOperation('Move text block', () => {
+      this.withPage(pageIndex, (page) => {
+        this.removeContentInRect(page, expandRect(block.rect, 0.35), {
+          images: false,
+          lineArt: false,
+          text: true
+        });
+        this.extendPageToFit(page, block.rect[3] + deltaY);
+        this.appendStaticText(page, entries);
+      });
+    });
+  }
+
+  addTable(pageIndex, rect, rows = 2, columns = 2, properties = {}) {
+    const normalizedRect = normalizeRect(rect);
+    const rowCount = Math.max(1, Math.min(30, Math.round(Number(rows) || 2)));
+    const columnCount = Math.max(1, Math.min(20, Math.round(Number(columns) || 2)));
+
+    this.withOperation('Add table', () => {
+      this.withPage(pageIndex, (page) => {
+        this.createTableAnnotation(
+          page,
+          normalizedRect,
+          rowCount,
+          columnCount,
+          properties
+        );
+      });
+    });
+  }
+
+  updateTable(pageIndex, annotationIndex, rect, rows, columns, properties = {}) {
+    this.withOperation('Edit table', () => {
+      this.withPage(pageIndex, (page) => {
+        const annotations = page.getAnnotations();
+        try {
+          const annotation = annotations[annotationIndex];
+          if (!annotation) {
+            throw new Error('The selected table no longer exists.');
+          }
+          const metadata = parseTableMetadata(
+            annotation.getType(),
+            safeCall(() => annotation.getSubject(), ''),
+            safeCall(() => annotation.getContents(), '')
+          );
+          if (!metadata) {
+            throw new Error('The selected object is not an editable table.');
+          }
+          page.deleteAnnotation(annotation);
+          this.createTableAnnotation(page, rect, rows, columns, {
+            color: properties.color || metadata.color,
+            borderWidth: properties.borderWidth || metadata.borderWidth
+          });
+          page.update();
+        } finally {
+          destroyAll(annotations);
+        }
+      });
+    });
+  }
+
+  createTableAnnotation(page, rect, rows, columns, properties = {}) {
+    const normalizedRect = normalizeRect(rect);
+    const rowCount = Math.max(1, Math.min(30, Math.round(Number(rows) || 2)));
+    const columnCount = Math.max(1, Math.min(20, Math.round(Number(columns) || 2)));
+    const color = normalizeColor(properties.color, [0, 0, 0]);
+    const borderWidth = Math.max(0.25, Math.min(8, Number(properties.borderWidth || 1)));
+    const strokes = [];
+    for (let row = 0; row <= rowCount; row += 1) {
+      const y = normalizedRect[1] + (
+        (normalizedRect[3] - normalizedRect[1]) * row / rowCount
+      );
+      strokes.push([[normalizedRect[0], y], [normalizedRect[2], y]]);
+    }
+    for (let column = 0; column <= columnCount; column += 1) {
+      const x = normalizedRect[0] + (
+        (normalizedRect[2] - normalizedRect[0]) * column / columnCount
+      );
+      strokes.push([[x, normalizedRect[1]], [x, normalizedRect[3]]]);
+    }
+
+    const annotation = page.createAnnotation('Ink');
+    try {
+      annotation.setInkList(strokes);
+      annotation.setColor(color);
+      if (annotation.hasBorder()) {
+        annotation.setBorderWidth(borderWidth);
+      }
+      annotation.setAuthor('PDF Viewer & Editor');
+      annotation.setSubject(TABLE_SUBJECT);
+      annotation.setContents(JSON.stringify({
+        type: 'table',
+        rows: rowCount,
+        columns: columnCount,
+        color,
+        borderWidth
+      }));
+      annotation.update();
+      page.update();
+    } finally {
+      annotation.destroy();
+    }
+  }
+
+  appendRawContent(page, commands) {
+    const pageObject = page.getObject();
+    try {
+      const stream = this.pdfDocument.addStream(String(commands || ''));
+      let contents = pageObject.get('Contents');
+      if (contents.isArray()) {
+        contents.push(stream);
+      } else {
+        const contentsArray = this.pdfDocument.newArray();
+        if (!contents.isNull()) {
+          contentsArray.push(contents);
+        }
+        contentsArray.push(stream);
+        pageObject.put('Contents', contentsArray);
+        contentsArray.destroy();
+      }
+      stream.destroy();
+      contents.destroy();
+      page.update();
+    } finally {
+      pageObject.destroy();
+    }
+  }
+
+  extendPageToFit(page, maximumBottom) {
+    const bounds = page.getBounds();
+    if (maximumBottom <= bounds[3] - 18) {
+      return false;
+    }
+
+    const extendedBounds = [
+      bounds[0],
+      bounds[1],
+      bounds[2],
+      Math.ceil(maximumBottom + 24)
+    ];
+    page.setPageBox('MediaBox', extendedBounds);
+    page.setPageBox('CropBox', extendedBounds);
+    page.update();
+    return true;
+  }
+
+  appendStaticText(page, entries) {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return;
+    }
+
+    const pageObject = page.getObject();
+    try {
+      let resources = pageObject.getInheritable('Resources');
+      if (resources.isNull()) {
+        resources.destroy();
+        resources = this.pdfDocument.newDictionary();
+        pageObject.put('Resources', resources);
+      }
+
+      let fonts = resources.get('Font');
+      if (fonts.isNull()) {
+        fonts.destroy();
+        fonts = this.pdfDocument.newDictionary();
+        resources.put('Font', fonts);
+      }
+
+      const fontEntries = new Map();
+      const fontToken = Date.now().toString(36);
+      const getFontEntry = (fontName) => {
+        if (!fontEntries.has(fontName)) {
+          const font = new mupdf.Font(fontName);
+          const reference = this.pdfDocument.addFont(font);
+          const resourceName = `FPVE${fontToken}${fontEntries.size}`;
+          fonts.put(resourceName, reference);
+          fontEntries.set(fontName, { font, reference, resourceName });
+        }
+        return fontEntries.get(fontName);
+      };
+
+      const transform = page.getTransform();
+      const commands = ['q'];
+      try {
+        for (const entry of entries) {
+          const text = String(entry.text || '');
+          if (!text) {
+            continue;
+          }
+          const fontName = selectWritingFont(text, entry.fontName);
+          const fontEntry = getFontEntry(fontName);
+          const encoded = encodePdfGlyphHex(fontEntry.font, text);
+          const color = normalizeColor(entry.color, [0, 0, 0]);
+          const matrix = textMatrixForPage(transform, entry.baseline);
+          commands.push(
+            `${formatNumber(color[0])} ${formatNumber(color[1])} ${formatNumber(color[2])} rg`,
+            'BT',
+            `/${fontEntry.resourceName} ${formatNumber(entry.fontSize)} Tf`,
+            `${matrix.map(formatNumber).join(' ')} Tm`,
+            `<${encoded.hex}> Tj`,
+            'ET'
+          );
+        }
+        commands.push('Q');
+      } finally {
+        for (const entry of fontEntries.values()) {
+          entry.reference.destroy();
+          entry.font.destroy();
+        }
+      }
+
+      const stream = this.pdfDocument.addStream(commands.join('\n'));
+      let contents = pageObject.get('Contents');
+      if (contents.isArray()) {
+        contents.push(stream);
+      } else {
+        const contentsArray = this.pdfDocument.newArray();
+        if (!contents.isNull()) {
+          contentsArray.push(contents);
+        }
+        contentsArray.push(stream);
+        pageObject.put('Contents', contentsArray);
+        contentsArray.destroy();
+      }
+
+      stream.destroy();
+      contents.destroy();
+      fonts.destroy();
+      resources.destroy();
+      page.update();
+    } finally {
+      pageObject.destroy();
+    }
   }
 
   createFreeText(page, rect, properties) {
@@ -1013,6 +1368,529 @@ export class PdfEngine {
       throw new Error(`Invalid PDF page index: ${pageIndex}.`);
     }
   }
+}
+
+function extractTextBlocks(structuredText) {
+  const blocks = [];
+  let currentBlock = null;
+  let currentLine = null;
+
+  structuredText.walk({
+    beginTextBlock(bbox) {
+      currentBlock = {
+        sourceRect: normalizeRect([...bbox]),
+        lines: []
+      };
+    },
+    beginLine(bbox) {
+      currentLine = {
+        text: '',
+        rect: normalizeRect([...bbox]),
+        baseline: null,
+        styles: new Map()
+      };
+    },
+    onChar(character, origin, font, size, quad, color) {
+      if (!currentLine) {
+        font.destroy();
+        return;
+      }
+      try {
+        const fontInfo = {
+          name: safeCall(() => font.getName(), 'Helvetica'),
+          family: safeCall(() => font.isMono(), false)
+            ? 'monospace'
+            : (safeCall(() => font.isSerif(), false) ? 'serif' : 'sans-serif'),
+          weight: safeCall(() => font.isBold(), false) ? 'bold' : 'normal',
+          style: safeCall(() => font.isItalic(), false) ? 'italic' : 'normal',
+          size: Number(size || 12),
+          editableFamily: safeCall(() => font.isMono(), false)
+            ? 'Courier'
+            : (safeCall(() => font.isSerif(), false) ? 'Times-Roman' : 'Helvetica'),
+          bold: safeCall(() => font.isBold(), false),
+          italic: safeCall(() => font.isItalic(), false)
+        };
+        const normalizedColor = normalizeColor([...color], [0, 0, 0]);
+        const styleKey = JSON.stringify([fontInfo, normalizedColor]);
+        const weightedStyle = currentLine.styles.get(styleKey) || {
+          font: fontInfo,
+          color: normalizedColor,
+          weight: 0
+        };
+        weightedStyle.weight += Math.max(1, String(character).trim().length);
+        currentLine.styles.set(styleKey, weightedStyle);
+        currentLine.text += String(character);
+        currentLine.baseline ||= [Number(origin[0] || 0), Number(origin[1] || 0)];
+        currentLine.rect = unionRects([
+          currentLine.rect,
+          quadToRect(quad)
+        ]);
+      } finally {
+        font.destroy();
+      }
+    },
+    endLine() {
+      if (!currentBlock || !currentLine) {
+        currentLine = null;
+        return;
+      }
+      const style = dominantWeightedStyle(currentLine.styles);
+      currentBlock.lines.push({
+        text: currentLine.text,
+        rect: currentLine.rect,
+        baseline: currentLine.baseline || [currentLine.rect[0], currentLine.rect[3]],
+        font: style.font,
+        color: style.color
+      });
+      currentLine = null;
+    },
+    endTextBlock() {
+      if (!currentBlock) {
+        return;
+      }
+      const lines = currentBlock.lines.filter((line) => line.text.length > 0);
+      if (lines.length > 0) {
+        const visualLines = buildVisualLines(lines);
+        const rect = unionRects([
+          currentBlock.sourceRect,
+          ...lines.map((line) => line.rect)
+        ]);
+        const blockStyle = dominantLineStyle(lines);
+        const index = blocks.length;
+        blocks.push({
+          index,
+          rect,
+          text: visualLines.map((line) => line.text.trim()).join(' ').trim(),
+          lines: lines.map((line, lineIndex) => ({
+            ...line,
+            blockIndex: index,
+            lineIndex
+          })),
+          visualLines,
+          font: blockStyle.font,
+          color: blockStyle.color,
+          alignment: inferTextAlignment(rect, visualLines),
+          metrics: metricsForBlock(rect, visualLines, blockStyle.font.size)
+        });
+      }
+      currentBlock = null;
+    }
+  });
+
+  return blocks;
+}
+
+function dominantWeightedStyle(styles) {
+  const fallback = {
+    font: {
+      name: 'Helvetica',
+      family: 'sans-serif',
+      weight: 'normal',
+      style: 'normal',
+      size: 12,
+      editableFamily: 'Helvetica',
+      bold: false,
+      italic: false
+    },
+    color: [0, 0, 0],
+    weight: 1
+  };
+  return [...styles.values()].reduce(
+    (best, candidate) => candidate.weight > best.weight ? candidate : best,
+    fallback
+  );
+}
+
+function dominantLineStyle(lines) {
+  const styles = new Map();
+  for (const line of lines) {
+    const key = JSON.stringify([line.font, line.color]);
+    const value = styles.get(key) || {
+      font: line.font,
+      color: line.color,
+      weight: 0
+    };
+    value.weight += Math.max(1, line.text.trim().length);
+    styles.set(key, value);
+  }
+  return dominantWeightedStyle(styles);
+}
+
+function buildVisualLines(lines) {
+  const sortedLines = [...lines].sort((left, right) => {
+    const yDifference = left.baseline[1] - right.baseline[1];
+    return Math.abs(yDifference) > 0.75
+      ? yDifference
+      : left.rect[0] - right.rect[0];
+  });
+  const rows = [];
+  for (const line of sortedLines) {
+    const tolerance = Math.max(1, line.font.size * 0.2);
+    const row = rows.findLast((candidate) =>
+      Math.abs(candidate.baseline[1] - line.baseline[1]) <= tolerance
+    );
+    if (row) {
+      row.fragments.push(line);
+      row.rect = unionRects([row.rect, line.rect]);
+    } else {
+      rows.push({
+        fragments: [line],
+        rect: [...line.rect],
+        baseline: [...line.baseline]
+      });
+    }
+  }
+
+  return rows.map((row) => {
+    row.fragments.sort((left, right) => left.rect[0] - right.rect[0]);
+    let text = '';
+    let previous = null;
+    for (const fragment of row.fragments) {
+      if (previous && needsVisualSpace(previous, fragment)) {
+        text += ' ';
+      }
+      text += fragment.text;
+      previous = fragment;
+    }
+    const style = dominantLineStyle(row.fragments);
+    return {
+      text,
+      rect: row.rect,
+      baseline: [row.fragments[0].baseline[0], row.baseline[1]],
+      font: style.font,
+      color: style.color
+    };
+  });
+}
+
+function needsVisualSpace(left, right) {
+  if (/\s$/u.test(left.text) || /^\s/u.test(right.text)) {
+    return false;
+  }
+  const gap = right.rect[0] - left.rect[2];
+  return gap > Math.max(0.75, Math.min(left.font.size, right.font.size) * 0.12);
+}
+
+function inferTextAlignment(rect, visualLines) {
+  if (visualLines.length < 2) {
+    return 0;
+  }
+  const leftSpread = Math.max(...visualLines.map((line) => Math.abs(line.rect[0] - rect[0])));
+  const rightSpread = Math.max(...visualLines.map((line) => Math.abs(line.rect[2] - rect[2])));
+  const center = (rect[0] + rect[2]) / 2;
+  const centerSpread = Math.max(...visualLines.map((line) =>
+    Math.abs((line.rect[0] + line.rect[2]) / 2 - center)
+  ));
+  if (centerSpread < leftSpread * 0.65 && centerSpread < rightSpread * 0.65) {
+    return 1;
+  }
+  if (rightSpread < leftSpread * 0.65) {
+    return 2;
+  }
+  return 0;
+}
+
+function metricsForBlock(rect, visualLines, fontSize) {
+  if (visualLines.length === 0) {
+    return defaultTextMetrics(fontSize);
+  }
+  const firstBaseline = visualLines[0].baseline[1];
+  const lastBaseline = visualLines.at(-1).baseline[1];
+  const baselineOffset = Math.max(1, firstBaseline - rect[1]);
+  const lineHeight = visualLines.length > 1
+    ? Math.max(1, (lastBaseline - firstBaseline) / (visualLines.length - 1))
+    : Math.max(fontSize * 1.2, visualLines[0].rect[3] - visualLines[0].rect[1]);
+  const descent = Math.max(1, rect[3] - lastBaseline);
+  const size = Math.max(1, Number(fontSize || 12));
+  return {
+    baselineOffset,
+    lineHeight,
+    descent,
+    baselineOffsetRatio: baselineOffset / size,
+    lineHeightRatio: lineHeight / size,
+    descentRatio: descent / size
+  };
+}
+
+function defaultTextMetrics(fontSize) {
+  const size = Math.max(1, Number(fontSize || 12));
+  return {
+    baselineOffset: size * 1.05,
+    lineHeight: size * 1.25,
+    descent: size * 0.25,
+    baselineOffsetRatio: 1.05,
+    lineHeightRatio: 1.25,
+    descentRatio: 0.25
+  };
+}
+
+function normalizeBlockProperties(block, properties) {
+  const originalFont = block.font || {};
+  const requestedFamily = properties.fontFamily || properties.font || originalFont.editableFamily;
+  const fontFamily = normalizeEditableFontFamily(requestedFamily);
+  const bold = properties.bold === undefined
+    ? Boolean(originalFont.bold)
+    : Boolean(properties.bold);
+  const italic = properties.italic === undefined
+    ? Boolean(originalFont.italic)
+    : Boolean(properties.italic);
+  const fontSize = Math.max(4, Math.min(144, Number(
+    properties.fontSize ?? originalFont.size ?? 12
+  )));
+  return {
+    text: String(properties.text ?? block.text ?? '').replaceAll('\0', ''),
+    fontFamily,
+    fontName: resolveBase14Font(fontFamily, bold, italic),
+    fontSize,
+    bold,
+    italic,
+    color: normalizeColor(properties.color || block.color, [0, 0, 0]),
+    alignment: Math.max(0, Math.min(2, Number(
+      properties.alignment ?? block.alignment ?? 0
+    )))
+  };
+}
+
+function normalizeEditableFontFamily(value) {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized.includes('times') || normalized.includes('serif') || normalized === 'tiro') {
+    return 'Times-Roman';
+  }
+  if (normalized.includes('courier') || normalized.includes('mono') || normalized === 'cour') {
+    return 'Courier';
+  }
+  return 'Helvetica';
+}
+
+function resolveBase14Font(family, bold, italic) {
+  if (family === 'Times-Roman') {
+    if (bold && italic) {
+      return 'Times-BoldItalic';
+    }
+    if (bold) {
+      return 'Times-Bold';
+    }
+    if (italic) {
+      return 'Times-Italic';
+    }
+    return 'Times-Roman';
+  }
+  if (family === 'Courier') {
+    if (bold && italic) {
+      return 'Courier-BoldOblique';
+    }
+    if (bold) {
+      return 'Courier-Bold';
+    }
+    if (italic) {
+      return 'Courier-Oblique';
+    }
+    return 'Courier';
+  }
+  if (bold && italic) {
+    return 'Helvetica-BoldOblique';
+  }
+  if (bold) {
+    return 'Helvetica-Bold';
+  }
+  if (italic) {
+    return 'Helvetica-Oblique';
+  }
+  return 'Helvetica';
+}
+
+function layoutTextBlock(rect, values, metrics, originalBlock = null) {
+  if (!values.text) {
+    return { height: 0, entries: [], lines: [] };
+  }
+  const width = Math.max(24, rect[2] - rect[0]);
+  const font = new mupdf.Font(values.fontName);
+  let lines;
+  try {
+    lines = wrapText(font, values.text, values.fontSize, width);
+  } finally {
+    font.destroy();
+  }
+
+  const baselineOffset = clampNumber(
+    Number(metrics?.baselineOffsetRatio || 1.05) * values.fontSize,
+    values.fontSize * 0.75,
+    values.fontSize * 1.5
+  );
+  const lineHeight = clampNumber(
+    Number(metrics?.lineHeightRatio || 1.25) * values.fontSize,
+    values.fontSize,
+    values.fontSize * 2
+  );
+  const descent = clampNumber(
+    Number(metrics?.descentRatio || 0.25) * values.fontSize,
+    values.fontSize * 0.12,
+    values.fontSize * 0.6
+  );
+  const height = baselineOffset + Math.max(0, lines.length - 1) * lineHeight + descent;
+  const measureFont = new mupdf.Font(values.fontName);
+  try {
+    const entries = lines.flatMap((text, index) => {
+      if (!text) {
+        return [];
+      }
+      const textWidth = measureText(measureFont, text, values.fontSize);
+      let x = rect[0];
+      if (values.alignment === 1) {
+        x = rect[0] + (width - textWidth) / 2;
+      } else if (values.alignment === 2) {
+        x = rect[2] - textWidth;
+      }
+      return [{
+        text,
+        baseline: [x, rect[1] + baselineOffset + index * lineHeight],
+        fontName: values.fontName,
+        fontSize: values.fontSize,
+        color: values.color
+      }];
+    });
+    return { height, entries, lines, originalBlock };
+  } finally {
+    measureFont.destroy();
+  }
+}
+
+function wrapText(font, value, fontSize, maximumWidth) {
+  const lines = [];
+  for (const paragraph of String(value).replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')) {
+    if (!paragraph.trim()) {
+      lines.push('');
+      continue;
+    }
+    const words = paragraph.trim().split(/\s+/u);
+    let line = '';
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (measureText(font, candidate, fontSize) <= maximumWidth + 0.5) {
+        line = candidate;
+        continue;
+      }
+      if (line) {
+        lines.push(line);
+        line = '';
+      }
+      const pieces = splitLongWord(font, word, fontSize, maximumWidth);
+      lines.push(...pieces.slice(0, -1));
+      line = pieces.at(-1) || '';
+    }
+    lines.push(line);
+  }
+  return lines.length > 0 ? lines : [''];
+}
+
+function splitLongWord(font, word, fontSize, maximumWidth) {
+  if (measureText(font, word, fontSize) <= maximumWidth + 0.5) {
+    return [word];
+  }
+  const pieces = [];
+  let piece = '';
+  for (const character of word) {
+    const candidate = piece + character;
+    if (piece && measureText(font, candidate, fontSize) > maximumWidth + 0.5) {
+      pieces.push(piece);
+      piece = character;
+    } else {
+      piece = candidate;
+    }
+  }
+  if (piece) {
+    pieces.push(piece);
+  }
+  return pieces.length > 0 ? pieces : [word];
+}
+
+function measureText(font, value, fontSize) {
+  return encodePdfGlyphHex(font, value).advance * fontSize;
+}
+
+function findFollowingBlocks(blocks, anchorRect, excludedIndex) {
+  return blocks.filter((block) =>
+    block.index !== excludedIndex &&
+    block.rect[1] >= anchorRect[3] - 1 &&
+    rectanglesShareFlow(anchorRect, block.rect)
+  );
+}
+
+function findBlocksAtOrBelow(blocks, anchorRect) {
+  return blocks.filter((block) =>
+    block.rect[3] >= anchorRect[1] - 1 &&
+    rectanglesShareFlow(anchorRect, block.rect)
+  );
+}
+
+function rectanglesShareFlow(left, right) {
+  const overlap = Math.max(0, Math.min(left[2], right[2]) - Math.max(left[0], right[0]));
+  const minimumWidth = Math.max(1, Math.min(left[2] - left[0], right[2] - right[0]));
+  return overlap / minimumWidth >= 0.25;
+}
+
+function textEntriesForExistingBlock(block, deltaY, deltaX = 0) {
+  return block.lines.flatMap((line) => {
+    if (!line.text) {
+      return [];
+    }
+    return [{
+      text: line.text,
+      baseline: [line.baseline[0] + deltaX, line.baseline[1] + deltaY],
+      fontName: resolveBase14Font(
+        normalizeEditableFontFamily(line.font.editableFamily || line.font.family),
+        Boolean(line.font.bold || line.font.weight === 'bold'),
+        Boolean(line.font.italic || line.font.style === 'italic')
+      ),
+      fontSize: Math.max(4, Number(line.font.size || 12)),
+      color: normalizeColor(line.color, [0, 0, 0])
+    }];
+  });
+}
+
+function expandRect(rect, amount) {
+  return [rect[0] - amount, rect[1] - amount, rect[2] + amount, rect[3] + amount];
+}
+
+function selectWritingFont(text, preferredFont) {
+  const unicodeFont = selectOcrFont(text, '');
+  return unicodeFont === 'Helvetica' ? preferredFont : unicodeFont;
+}
+
+function parseTableMetadata(type, subject, contents) {
+  if (type !== 'Ink' || subject !== TABLE_SUBJECT) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(contents);
+    if (value?.type !== 'table') {
+      return null;
+    }
+    return {
+      rows: Math.max(1, Math.min(30, Math.round(Number(value.rows) || 2))),
+      columns: Math.max(1, Math.min(20, Math.round(Number(value.columns) || 2))),
+      color: normalizeColor(value.color, [0, 0, 0]),
+      borderWidth: Math.max(0.25, Math.min(8, Number(value.borderWidth || 1)))
+    };
+  } catch {
+    return null;
+  }
+}
+
+function textMatrixForPage(transform, baseline) {
+  const point = transformPoint(transform, baseline);
+  return [
+    transform[0],
+    transform[1],
+    -transform[2],
+    -transform[3],
+    point[0],
+    point[1]
+  ];
+}
+
+function clampNumber(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, Number(value)));
 }
 
 function normalizePdfFont(value) {

@@ -224,11 +224,7 @@ class PdfEditorProvider {
       settings: {
         defaultZoom: configuration.get('defaultZoom', 1.25),
         maxRenderPixels: configuration.get('maxRenderPixels', 24000000),
-        defaultSaveMode: configuration.get('defaultSaveMode', 'incremental'),
-        ocrLanguageDataUrl: configuration.get(
-          'ocrLanguageDataUrl',
-          'https://tessdata.projectnaptha.com/4.0.0_best_int'
-        )
+        defaultSaveMode: configuration.get('defaultSaveMode', 'incremental')
       }
     });
   }

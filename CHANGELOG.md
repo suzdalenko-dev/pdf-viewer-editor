@@ -2,6 +2,26 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí.
 
+## 0.0.2 - 2026-08-23
+
+### Cambiado
+
+- Interfaz reducida a cinco acciones principales: editar texto, añadir texto, imagen, tabla y eliminar.
+- Edición de líneas sustituida por edición de bloques completos con ajuste automático de palabras.
+- El contenido inferior del mismo flujo/columna se desplaza cuando el bloque crece, disminuye o se borra.
+- La página se amplía verticalmente cuando el nuevo flujo supera su borde inferior.
+- El texto reemplazado se escribe como contenido PDF estático, seleccionable y buscable.
+- El texto se puede insertar en cualquier coordenada y mover después mediante arrastre.
+- Tablas seleccionables con filas, columnas, color, grosor, movimiento, escala y eliminación editables.
+- Flujo simple para insertar, mover, redimensionar y eliminar imágenes.
+- OCR, dibujo, anotaciones generales, inspector y gestión documental avanzada retirados de la interfaz.
+- Tesseract.js y sus modelos de idioma retirados del paquete.
+
+### Pruebas
+
+- Cobertura de reflujo, desplazamiento, borrado, inserción, movimiento y persistencia del texto.
+- Cobertura de creación, edición y eliminación de tablas.
+
 ## 0.0.1 - 2026-08-23
 
 ### Añadido
