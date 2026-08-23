@@ -399,6 +399,18 @@ export class PdfEngine {
     }
   }
 
+  getImageDimensions(imageBytes) {
+    const image = new mupdf.Image(imageBytes);
+    try {
+      return {
+        width: image.getWidth(),
+        height: image.getHeight()
+      };
+    } finally {
+      image.destroy();
+    }
+  }
+
   deleteExistingContent(pageIndex, rect, options) {
     this.withOperation('Delete PDF content', () => {
       this.withPage(pageIndex, (page) => this.removeContentInRect(page, rect, options));
@@ -499,7 +511,9 @@ export class PdfEngine {
         try {
           annotation.setRect(normalizeRect(rect));
           annotation.setColor([1, 0, 0]);
-          annotation.setInteriorColor([0, 0, 0]);
+          if (annotation.hasInteriorColor()) {
+            annotation.setInteriorColor([0, 0, 0]);
+          }
           annotation.setContents('Marked for permanent redaction');
           annotation.update();
           page.update();
@@ -851,7 +865,7 @@ export class PdfEngine {
     this.withOperation('Delete embedded file', () => this.pdfDocument.deleteEmbeddedFile(name));
   }
 
-  addOcrTextLayer(pageIndex, words) {
+  addOcrTextLayer(pageIndex, words, language = '') {
     if (!Array.isArray(words) || words.length === 0) {
       return;
     }
@@ -874,33 +888,49 @@ export class PdfEngine {
             resources.put('Font', fonts);
           }
 
-          const resourceName = `FOCR${Date.now().toString(36)}`;
-          const font = new mupdf.Font('Helvetica');
-          const fontObject = this.pdfDocument.addSimpleFont(font, 'Latin');
-          font.destroy();
-          fonts.put(resourceName, fontObject);
+          const fontEntries = new Map();
+          const fontToken = Date.now().toString(36);
+          const getFontEntry = (fontName) => {
+            if (!fontEntries.has(fontName)) {
+              const font = new mupdf.Font(fontName);
+              const reference = this.pdfDocument.addFont(font);
+              const resourceName = `FOCR${fontToken}${fontEntries.size}`;
+              fonts.put(resourceName, reference);
+              fontEntries.set(fontName, { font, reference, resourceName });
+            }
+            return fontEntries.get(fontName);
+          };
 
           const transform = page.getTransform();
           const commands = ['q', 'BT', '3 Tr'];
-          for (const word of words) {
-            const text = String(word.text || '').trim();
-            if (!text) {
-              continue;
+          try {
+            for (const word of words) {
+              const text = String(word.text || '').trim();
+              if (!text) {
+                continue;
+              }
+              const fontEntry = getFontEntry(selectOcrFont(text, language));
+              const encoded = encodePdfGlyphHex(fontEntry.font, text);
+              const rect = normalizeRect(word.rect);
+              const baseline = transformPoint(transform, [rect[0], rect[3]]);
+              const fontSize = Math.max(4, rect[3] - rect[1]);
+              const estimatedWidth = Math.max(fontSize * 0.25, encoded.advance * fontSize);
+              const targetWidth = Math.max(1, rect[2] - rect[0]);
+              const horizontalScale = Math.max(10, Math.min(400, (targetWidth / estimatedWidth) * 100));
+              commands.push(
+                `/${fontEntry.resourceName} ${formatNumber(fontSize)} Tf`,
+                `${formatNumber(horizontalScale)} Tz`,
+                `1 0 0 1 ${formatNumber(baseline[0])} ${formatNumber(baseline[1])} Tm`,
+                `<${encoded.hex}> Tj`
+              );
             }
-            const rect = normalizeRect(word.rect);
-            const baseline = transformPoint(transform, [rect[0], rect[3]]);
-            const fontSize = Math.max(4, rect[3] - rect[1]);
-            const estimatedWidth = Math.max(fontSize * 0.25, text.length * fontSize * 0.5);
-            const targetWidth = Math.max(1, rect[2] - rect[0]);
-            const horizontalScale = Math.max(10, Math.min(400, (targetWidth / estimatedWidth) * 100));
-            commands.push(
-              `/${resourceName} ${formatNumber(fontSize)} Tf`,
-              `${formatNumber(horizontalScale)} Tz`,
-              `1 0 0 1 ${formatNumber(baseline[0])} ${formatNumber(baseline[1])} Tm`,
-              `<${encodePdfLatinHex(text)}> Tj`
-            );
+            commands.push('ET', 'Q');
+          } finally {
+            for (const entry of fontEntries.values()) {
+              entry.reference.destroy();
+              entry.font.destroy();
+            }
           }
-          commands.push('ET', 'Q');
 
           const stream = this.pdfDocument.addStream(commands.join('\n'));
           let contents = pageObject.get('Contents');
@@ -918,7 +948,6 @@ export class PdfEngine {
 
           stream.destroy();
           contents.destroy();
-          fontObject.destroy();
           fonts.destroy();
           resources.destroy();
         } finally {
@@ -1031,12 +1060,36 @@ function formatNumber(value) {
   return Number(value).toFixed(4).replace(/\.?0+$/, '');
 }
 
-function encodePdfLatinHex(value) {
-  let result = '';
+function selectOcrFont(text, language) {
+  if (/[\uAC00-\uD7AF]/u.test(text)) {
+    return 'ko';
+  }
+  if (/[\u3040-\u30FF]/u.test(text)) {
+    return 'ja';
+  }
+  if (/[\u3400-\u9FFF\uF900-\uFAFF]/u.test(text)) {
+    const normalizedLanguage = String(language || '').toLowerCase();
+    if (normalizedLanguage.includes('jpn') || normalizedLanguage === 'ja') {
+      return 'ja';
+    }
+    if (normalizedLanguage.includes('chi_tra') || normalizedLanguage.includes('zh-hant')) {
+      return 'zh-Hant';
+    }
+    return 'zh-Hans';
+  }
+  return 'Helvetica';
+}
+
+function encodePdfGlyphHex(font, value) {
+  let hex = '';
+  let advance = 0;
+  const replacementGlyph = font.encodeCharacter('?');
   for (const character of String(value)) {
     const codePoint = character.codePointAt(0) || 32;
-    const byte = codePoint <= 255 ? codePoint : 63;
-    result += byte.toString(16).padStart(2, '0');
+    const encodedGlyph = font.encodeCharacter(codePoint);
+    const glyph = encodedGlyph === 0 && codePoint !== 0 ? replacementGlyph : encodedGlyph;
+    hex += glyph.toString(16).padStart(4, '0').slice(-4);
+    advance += Math.max(0, font.advanceGlyph(glyph));
   }
-  return result.toUpperCase();
+  return { hex: hex.toUpperCase(), advance };
 }

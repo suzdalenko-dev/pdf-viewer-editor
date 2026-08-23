@@ -24,7 +24,7 @@ PDF Viewer & Editor incluye las siguientes dependencias de ejecución. Las copia
 ## Tesseract language data
 
 - Paquetes: `@tesseract.js-data/spa` 1.0.0 y `@tesseract.js-data/eng` 1.0.0
-- Datos derivados del proyecto tessdata/tessdata_best de Tesseract OCR.
-- Licencia: Apache License 2.0.
+- Proyecto: https://github.com/naptha/tessdata
+- Licencia declarada por los paquetes: MIT.
 
 Los nombres de productos y proyectos pertenecen a sus respectivos titulares. Esta extensión no está afiliada ni respaldada oficialmente por Artifex, Fabric.js ni Tesseract.js.

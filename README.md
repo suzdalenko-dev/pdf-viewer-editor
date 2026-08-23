@@ -65,6 +65,7 @@ Un PDF normalmente no conserva “párrafos editables”. En esta extensión, un
 - OCR de la página actual o del documento completo.
 - Otros idiomas mediante un código de Tesseract y una URL configurable de datos de idioma.
 - Inserción de una capa de texto invisible y buscable sobre PDFs escaneados.
+- Fuentes PDF compuestas para conservar texto latino, griego, cirílico, chino, japonés y coreano en la capa OCR.
 
 ## Uso rápido
 

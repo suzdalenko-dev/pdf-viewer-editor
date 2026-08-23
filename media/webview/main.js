@@ -245,6 +245,7 @@ function buildEditingOverlay() {
   canvas.clear();
   canvas.selection = state.tool === 'select';
   canvas.skipTargetFind = state.tool === 'text-select';
+  canvas.wrapperEl?.classList.toggle('text-selection-disabled', state.tool === 'text-select');
 
   if (state.tool === 'select') {
     for (const annotation of state.pageModel.annotations) {
@@ -966,7 +967,7 @@ async function handleImageFile(event) {
   }
   try {
     const bytes = await fileToBytes(file);
-    const dimensions = await getImageDimensions(bytes, file.type);
+    const dimensions = engine.getImageDimensions(bytes);
     const action = state.pendingImageAction || { type: 'add' };
     if (action.type === 'add') {
       const rect = centeredImageRect(dimensions.width, dimensions.height);
@@ -1004,21 +1005,6 @@ function centeredImageRect(imageWidth, imageHeight) {
   const x = bounds[0] + (pageWidth - width) / 2;
   const y = bounds[1] + (pageHeight - height) / 2;
   return [x, y, x + width, y + height];
-}
-
-async function getImageDimensions(bytes, mimeType) {
-  const url = uint8ArrayToBlobUrl(bytes, mimeType || 'image/png');
-  try {
-    const image = new Image();
-    await new Promise((resolve, reject) => {
-      image.onload = resolve;
-      image.onerror = () => reject(new Error('The selected image could not be decoded.'));
-      image.src = url;
-    });
-    return { width: image.naturalWidth, height: image.naturalHeight };
-  } finally {
-    URL.revokeObjectURL(url);
-  }
 }
 
 async function replaceSelectedImage() {
@@ -1253,7 +1239,7 @@ async function runOcr(scope) {
       );
       const pageModel = engine.getPageModel(pageIndex);
       const words = parseTesseractWords(result.data.tsv || '', pageModel.bounds, 200 / 72);
-      engine.addOcrTextLayer(pageIndex, words);
+      engine.addOcrTextLayer(pageIndex, words, language);
       elements['ocr-progress'].value = (position + 1) / pageIndexes.length;
     }
     await commitAndRefresh(
@@ -1446,8 +1432,23 @@ async function handleDocumentAction(action) {
       data: bytesToBase64(bytes)
     });
     state.revision += 1;
+    engine.load(bytes, state.password);
+    await renderCurrentPage();
     setStatus('PDF optimized. Save the document to persist the clean copy.');
   }
+}
+
+function toggleDocumentMenu() {
+  const menu = elements['document-menu'];
+  if (!menu.classList.contains('hidden')) {
+    menu.classList.add('hidden');
+    return;
+  }
+  const buttonRect = elements['document-menu-button'].getBoundingClientRect();
+  menu.classList.remove('hidden');
+  const menuRect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(buttonRect.right - menuRect.width, window.innerWidth - menuRect.width - 8))}px`;
+  menu.style.top = `${Math.min(buttonRect.bottom + 4, window.innerHeight - menuRect.height - 8)}px`;
 }
 
 function initializeEventHandlers() {
@@ -1479,7 +1480,10 @@ function initializeEventHandlers() {
   elements['undo-button'].addEventListener('click', () => postCommand('undo'));
   elements['redo-button'].addEventListener('click', () => postCommand('redo'));
   elements['save-button'].addEventListener('click', () => postCommand('save'));
-  elements['document-menu-button'].addEventListener('click', () => elements['document-menu'].classList.toggle('hidden'));
+  elements['document-menu-button'].addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleDocumentMenu();
+  });
   elements['toggle-left'].addEventListener('click', () => elements['left-sidebar'].classList.toggle('collapsed'));
   elements['toggle-inspector'].addEventListener('click', () => elements.inspector.classList.toggle('collapsed'));
   elements['properties-form'].addEventListener('submit', applyProperties);
@@ -1538,6 +1542,11 @@ function initializeEventHandlers() {
     button.addEventListener('click', () => handleDocumentAction(button.dataset.documentAction));
   }
 
+  document.addEventListener('click', (event) => {
+    if (!elements['document-menu'].contains(event.target)) {
+      elements['document-menu'].classList.add('hidden');
+    }
+  });
   document.addEventListener('keydown', keyboardHandler);
   window.addEventListener('resize', debounce(async () => {
     if (state.zoomMode !== 'numeric' && state.pageCount > 0) {

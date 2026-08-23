@@ -15,7 +15,7 @@ Todos los cambios relevantes de este proyecto se documentan aquí.
 - Redacción permanente y aplanado de anotaciones.
 - Gestión de páginas, combinación, división y exportación PDF/PNG/JPEG.
 - OCR local en castellano e inglés y soporte configurable para otros idiomas.
-- Capa OCR invisible y buscable.
+- Capa OCR Unicode invisible y buscable (latino, griego, cirílico y CJK).
 - Metadatos, formularios y archivos adjuntos.
 - Integración con Guardar, Guardar como, deshacer/rehacer y recuperación de VS Code.
 - Pruebas automatizadas, CI y empaquetado VSIX reproducible.

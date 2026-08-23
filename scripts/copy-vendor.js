@@ -81,6 +81,10 @@ function copyVendors() {
       fileName.endsWith('.js') || fileName.endsWith('.wasm')
     )
   );
+  copyFile(
+    path.join(tesseractCoreRoot, 'LICENSE'),
+    path.join(tesseractCoreDestination, 'LICENSE')
+  );
 
   const languageDestination = path.join(tesseractDestination, 'languages');
   for (const language of ['spa', 'eng']) {
