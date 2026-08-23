@@ -61,39 +61,36 @@ jobs:
           )
           compressed = base64.b64decode(encoded)
           inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
-          partial_bytes = inflater.decompress(compressed)
-          partial = partial_bytes.decode('utf-8')
+          partial = inflater.decompress(compressed).decode('utf-8')
           old = Path('/tmp/pdf-engine-v003.js').read_text(encoding='utf-8')
 
-          matcher = difflib.SequenceMatcher(None, old, partial, autojunk=False)
+          old_lines = old.splitlines(keepends=True)
+          partial_lines = partial.splitlines(keepends=True)
+          matcher = difflib.SequenceMatcher(None, old_lines, partial_lines, autojunk=False)
           blocks = matcher.get_matching_blocks()
           candidates = [
               block for block in blocks
-              if block.size >= 200 and (len(partial) - (block.b + block.size)) <= 4000
+              if block.size >= 5 and (len(partial_lines) - (block.b + block.size)) <= 120
           ]
           if not candidates:
-              raise RuntimeError('Could not find a safe common anchor near the truncated payload tail')
+              raise RuntimeError('Could not find a safe common line anchor near the truncated payload tail')
 
           anchor = max(candidates, key=lambda block: (block.b + block.size, block.size))
-          trailing_partial = len(partial) - (anchor.b + anchor.size)
+          trailing_partial = len(partial_lines) - (anchor.b + anchor.size)
 
-          print(f'Old engine length: {len(old)}')
-          print(f'Partial v0.0.4 length: {len(partial)}')
+          print(f'Old engine: {len(old)} chars / {len(old_lines)} lines')
+          print(f'Partial v0.0.4: {len(partial)} chars / {len(partial_lines)} lines')
           print(f'Inflater reached gzip EOF: {inflater.eof}')
           print(
               'Recovery anchor: '
-              f'old[{anchor.a}:{anchor.a + anchor.size}] == '
-              f'partial[{anchor.b}:{anchor.b + anchor.size}], '
-              f'size={anchor.size}, trailing_partial={trailing_partial}'
+              f'old lines {anchor.a + 1}-{anchor.a + anchor.size} == '
+              f'partial lines {anchor.b + 1}-{anchor.b + anchor.size}, '
+              f'size={anchor.size}, trailing_partial_lines={trailing_partial}'
           )
 
-          # Use the verified common block as the splice point. The staged v0.0.4
-          # prefix wins; the unchanged v0.0.3 tail supplies bytes that never made
-          # it into the truncated gzip payload.
-          candidate = partial[:anchor.b] + old[anchor.a:]
+          candidate = ''.join(partial_lines[:anchor.b]) + ''.join(old_lines[anchor.a:])
           Path('media/webview/pdf-engine.js').write_text(candidate, encoding='utf-8')
 
-          # Report changed regions for auditability without dumping the whole file.
           diff = list(difflib.unified_diff(
               old.splitlines(),
               candidate.splitlines(),
@@ -102,7 +99,7 @@ jobs:
               n=2,
               lineterm='',
           ))
-          print(f'Recovered engine length: {len(candidate)}')
+          print(f'Recovered engine: {len(candidate)} chars')
           print(f'Diff lines vs 0.0.3: {len(diff)}')
           print('\n'.join(diff[:240]))
           if len(diff) > 240:
