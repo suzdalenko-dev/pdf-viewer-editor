@@ -75,7 +75,7 @@ function getWebviewHtml(webview, extensionUri) {
       <button id="image-tool" class="tool-button" data-tool="image">Imagen</button>
       <button id="table-tool" class="tool-button" data-tool="table">Tabla</button>
       <button id="delete-tool" class="tool-button danger-button" disabled>Eliminar</button>
-      <span id="tool-hint" class="tool-hint">Selecciona un bloque para editarlo.</span>
+      <span id="tool-hint" class="tool-hint">Haz clic en un párrafo, selecciona texto o usa + para insertar.</span>
     </nav>
 
     <section id="selection-context" class="selection-context hidden" aria-label="Propiedades de la selección">
@@ -131,6 +131,18 @@ function getWebviewHtml(webview, extensionUri) {
           <canvas id="pdf-canvas" aria-label="Página PDF renderizada"></canvas>
           <div id="text-layer" class="text-layer" aria-label="Texto seleccionable del PDF"></div>
           <canvas id="editor-canvas" aria-label="Capa de edición del PDF"></canvas>
+          <div id="insertion-layer" class="insertion-layer" aria-label="Puntos de inserción"></div>
+
+          <div id="insert-menu" class="insert-menu hidden" role="menu" aria-label="Insertar entre párrafos">
+            <span>Insertar aquí</span>
+            <button id="insert-text-here" type="button">Texto</button>
+            <button id="insert-image-here" type="button">Imagen</button>
+            <button id="insert-table-here" type="button">Tabla</button>
+          </div>
+
+          <button id="edit-range-button" class="edit-range-button hidden" type="button">
+            Editar selección
+          </button>
 
           <div id="block-editor" class="block-editor hidden">
             <textarea id="block-editor-text" aria-label="Contenido del bloque"></textarea>

@@ -2,6 +2,25 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí.
 
+## 0.0.3 - 2026-08-23
+
+### Corregido
+
+- Eliminado el rectángulo azul grande usado para seleccionar texto.
+- Separación de los bloques MuPDF en párrafos visuales mediante líneas, columnas, estilos y espaciado real.
+- Selección directa de cualquier línea, palabra o frase sobre el texto visible.
+- Edición y borrado de una selección parcial sin reemplazar el resto del párrafo.
+- Cambio de fuente, tamaño, color y estilo solo para el fragmento seleccionado, con reflujo real.
+- Puntos `+` entre párrafos para insertar texto, imagen o tabla de forma contextual.
+- Las imágenes y tablas insertadas en el flujo crean espacio y desplazan el texto inferior.
+- Reflujo con estilos mixtos para conservar el formato del texto no seleccionado.
+
+### Pruebas
+
+- Cobertura de segmentación de párrafos que MuPDF entrega dentro de un único bloque.
+- Cobertura de edición de rangos con formato mixto y desplazamiento del contenido posterior.
+- Cobertura de inserción de imágenes y tablas como objetos de flujo.
+
 ## 0.0.2 - 2026-08-23
 
 ### Cambiado
