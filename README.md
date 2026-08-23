@@ -1,82 +1,64 @@
 # PDF Viewer & Editor
 
-Editor visual de PDF gratuito para Visual Studio Code, construido en JavaScript con MuPDF.js, Fabric.js y Tesseract.js.
+Editor visual de PDF gratuito para Visual Studio Code, construido en JavaScript con MuPDF.js y Fabric.js.
 
-La versión `0.0.1` abre un PDF como una pestaña editable de VS Code. Las operaciones se ejecutan localmente en el webview y el documento participa en el ciclo normal de **Guardar**, **Guardar como**, **Deshacer**, **Rehacer**, recuperación y copias de seguridad de VS Code.
+La versión `0.0.2` se concentra en una tarea: **editar el contenido del PDF de forma sencilla**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
 
-> Estado: primera versión funcional. Antes de trabajar con documentos importantes, conserva una copia del archivo original. La estructura interna de un PDF no equivale a la de un procesador de texto y algunos documentos complejos, fuentes incrustadas o firmas digitales pueden requerir revisión manual.
+> Conserva una copia del documento original cuando trabajes con archivos importantes. Un PDF describe objetos colocados en coordenadas y no siempre contiene párrafos equivalentes a los de Word; esta extensión reconstruye bloques editables a partir de la estructura visual detectada por MuPDF.
 
-## Funciones incluidas en 0.0.1
+## Edición de texto con reflujo
 
-### Visualización y navegación
+- Seleccionar un bloque completo con un clic y editarlo con doble clic.
+- Añadir texto en cualquier punto de la página.
+- Cambiar o borrar el contenido real de un bloque.
+- Mover un bloque arrastrándolo.
+- Cambiar Helvetica/Times/Courier, tamaño, color, negrita, cursiva y alineación.
+- Ajustar automáticamente las líneas al ancho del bloque.
+- Desplazar hacia abajo o arriba los bloques posteriores cuando cambia la altura.
+- Mantener separado el flujo de columnas mediante solapamiento geométrico.
+- Ampliar la página verticalmente si el nuevo contenido necesita más espacio.
+- Guardar el reemplazo como texto PDF estático, seleccionable y buscable; no como una caja blanca que oculta el original.
 
-- Abrir archivos PDF desde el Explorador o con `PDF Viewer & Editor: Open with PDF Viewer & Editor`.
-- Renderizado de alta calidad con MuPDF.js/WASM.
-- Zoom entre 25 % y 500 %, ajustar página y ajustar ancho.
-- Página anterior/siguiente, salto directo, rotación y miniaturas.
-- Reordenar páginas arrastrando miniaturas.
-- Panel de esquema/marcadores.
-- Buscar en todo el documento, navegar por resultados y resaltarlos.
-- Capa de texto seleccionable para copiar contenido.
-- Apertura de PDFs protegidos mediante contraseña. La contraseña solo vive en la memoria del webview.
+Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula las nuevas líneas, escribe el bloque y vuelve a colocar los bloques inferiores en sus nuevas coordenadas. Si se borra el bloque, el contenido posterior sube para conservar el espacio lógico.
 
-### Texto
+## Imágenes
 
-- Detectar líneas/bloques mediante sus coordenadas.
-- Añadir cuadros de texto.
-- Editar o eliminar texto existente mediante **redacción del contenido original + inserción del texto nuevo**.
-- Cambiar fuente estándar (Helvetica, Times o Courier), tamaño, color, posición, alineación, opacidad y borde.
-- Mover/redimensionar elementos de texto añadidos.
-- Consolidar el resultado como contenido estático usando “Flatten annotations”.
+- Insertar PNG, JPEG, WebP, BMP, GIF o TIFF en cualquier posición.
+- Mover y redimensionar imágenes insertadas.
+- Eliminar imágenes insertadas.
+- Seleccionar y eliminar permanentemente una imagen original del PDF.
 
-Un PDF normalmente no conserva “párrafos editables”. En esta extensión, una línea detectada se presenta como un objeto seleccionable. Al confirmar una edición, MuPDF elimina físicamente el texto anterior dentro del rectángulo seleccionado y crea el reemplazo en la misma zona. Este comportamiento evita cubrir el contenido antiguo con una simple capa blanca.
+## Tablas simples
 
-### Imágenes y dibujo
+- Elegir el número de filas y columnas al crear la tabla.
+- Dibujar su zona directamente sobre la página.
+- Seleccionar una tabla creada, moverla y redimensionarla.
+- Cambiar posteriormente filas, columnas, color y grosor de línea.
+- Eliminar la tabla completa con `Eliminar` o la tecla `Delete`.
+- Añadir texto editable independiente dentro de cada celda con `Añadir texto`.
 
-- Insertar PNG, JPEG, WebP, BMP, GIF o TIFF.
-- Seleccionar, reemplazar, mover, recortar y redimensionar imágenes.
-- Reemplazo de imágenes existentes con eliminación real de la imagen original dentro de la región seleccionada.
-- Rectángulos, círculos, líneas, flechas y dibujo a mano alzada.
-- Color de trazo/relleno, grosor y opacidad desde el inspector.
+## Visor e integración con VS Code
 
-### Anotaciones y seguridad
-
-- Resaltado, subrayado, tachado y comentarios.
-- Editar, mover, redimensionar o eliminar anotaciones.
-- Marcar zonas y aplicar **redacción permanente** de texto, imágenes y trazos.
-- Aplanar anotaciones para convertirlas en contenido estático.
-- JavaScript embebido en el PDF se desactiva al abrir el documento.
-
-### Páginas y documentos
-
-- Añadir página en blanco, eliminar, duplicar, reordenar, rotar y recortar.
-- Combinar otro PDF en la posición actual.
-- Dividir o extraer rangos como `1-3,5`.
-- Exportar páginas individuales como PDF, PNG o JPEG (36–600 DPI).
-- Editar metadatos del documento.
-- Listar y rellenar campos de formulario compatibles.
-- Añadir, extraer y eliminar archivos adjuntos incrustados.
-- Guardado incremental cuando el documento lo permite.
-- Guardado limpio con recolección de objetos y compresión.
-
-### OCR
-
-- OCR local en castellano (`spa`) e inglés (`eng`); ambos modelos se incluyen en el VSIX.
-- OCR de la página actual o del documento completo.
-- Otros idiomas mediante un código de Tesseract y una URL configurable de datos de idioma.
-- Inserción de una capa de texto invisible y buscable sobre PDFs escaneados.
-- Fuentes PDF compuestas para conservar texto latino, griego, cirílico, chino, japonés y coreano en la capa OCR.
+- Renderizado local de alta calidad con MuPDF.js/WASM.
+- Miniaturas, navegación, zoom de 25 % a 500 %, ajustar página y ajustar ancho.
+- Búsqueda en todo el documento con resaltado de resultados.
+- Copiar el contenido del bloque seleccionado.
+- Apertura de PDFs protegidos mediante contraseña; la contraseña solo vive en la memoria del webview.
+- JavaScript incrustado en el PDF desactivado por seguridad.
+- Guardado incremental o limpio, según la configuración.
+- Guardar, Guardar como, Deshacer, Rehacer y recuperación nativos de VS Code.
+- Todo el procesamiento ocurre localmente; el documento no se envía a ningún servidor.
 
 ## Uso rápido
 
 1. Abre un archivo `.pdf` en VS Code.
-2. Si VS Code utiliza otro visor, abre el menú contextual del archivo y elige **Open with PDF Viewer & Editor**.
-3. Selecciona una herramienta de la barra superior.
-4. Para texto existente, elige **Edit text** y selecciona una línea detectada.
-5. Para redacción, marca una o más zonas y pulsa **Apply redactions permanently**.
-6. Guarda con `Ctrl+S`; usa `Ctrl+Shift+S` para Guardar como.
-
-Atajos integrados:
+2. Si se abre otro visor, usa el menú contextual y elige **Open with PDF Viewer & Editor**.
+3. Haz clic en un bloque de texto; usa doble clic o `Editar contenido` para escribir.
+4. Cambia el tamaño de fuente: el bloque se recompone y los bloques inferiores se desplazan.
+5. Usa `Añadir texto` y haz clic donde quieras colocarlo.
+6. Usa `Imagen` para elegir un archivo y después haz clic para colocarlo.
+7. Usa `Tabla`, elige filas/columnas y arrastra su rectángulo.
+8. Guarda con `Ctrl/Cmd+S`.
 
 | Acción | Atajo |
 |---|---|
@@ -85,20 +67,18 @@ Atajos integrados:
 | Deshacer | `Ctrl/Cmd+Z` |
 | Rehacer | `Ctrl/Cmd+Y` o `Ctrl/Cmd+Shift+Z` |
 | Buscar | `Ctrl/Cmd+F` |
+| Aplicar edición de texto | `Ctrl/Cmd+Enter` |
 | Eliminar selección | `Delete` |
 | Página anterior/siguiente | `PageUp` / `PageDown` |
-| Volver a selección | `Escape` |
+| Cancelar herramienta | `Escape` |
 
 ## Arquitectura
 
 | Componente | Responsabilidad | Licencia |
 |---|---|---|
-| VS Code Custom Editor API | Pestaña editable, guardado, Guardar como, deshacer/rehacer y recuperación | Microsoft API |
-| MuPDF.js 1.28 | Renderizado, estructura PDF, contenido, páginas, redacciones, formularios, contraseñas y serialización | AGPL-3.0 |
-| Fabric.js 7.4 | Selección visual, controles, movimiento, escala y herramientas de dibujo | MIT |
-| Tesseract.js 7 | OCR y generación de la capa de texto | Apache-2.0 |
-
-El webview nunca envía el PDF a un servidor. MuPDF, Fabric, Tesseract, el núcleo WASM y los modelos `spa`/`eng` se empaquetan en la extensión. Solo el OCR de otros idiomas puede descargar datos desde `pdfViewerEditor.ocrLanguageDataUrl`.
+| VS Code Custom Editor API | Pestaña editable, guardar, Guardar como, deshacer/rehacer y recuperación | Microsoft API |
+| MuPDF.js 1.28 | Renderizado, extracción estructurada, eliminación real, escritura estática, imágenes, contraseñas y serialización | AGPL-3.0 |
+| Fabric.js 7.4 | Selección visual, movimiento, escala y zonas de colocación | MIT |
 
 ## Desarrollo
 
@@ -113,30 +93,29 @@ npm run check
 npm run package
 ```
 
-Para depurar, abre el repositorio en VS Code y pulsa `F5`. El script `prepare` copia las dependencias del navegador a `media/vendor`; esa carpeta se genera y no se versiona.
-
-Comandos disponibles:
-
 | Comando | Resultado |
 |---|---|
 | `npm run lint` | Valida JavaScript con ESLint |
 | `npm run typecheck` | Comprueba el host de la extensión con TypeScript `checkJs` |
-| `npm test` | Ejecuta pruebas unitarias y de integración reales contra MuPDF/WASM |
+| `npm test` | Ejecuta pruebas unitarias y de integración contra MuPDF/WASM |
 | `npm run check` | Ejecuta lint, typecheck y pruebas |
-| `npm run package` | Genera `pdf-viewer-editor-0.0.1.vsix` |
+| `npm run package` | Genera `pdf-viewer-editor-0.0.2.vsix` |
 
-## Límites conocidos de 0.0.1
+El script `prepare` copia MuPDF y Fabric a `media/vendor`; esa carpeta se genera y no se versiona.
 
-- El reemplazo de texto trabaja por línea/región; no reconstruye automáticamente el flujo completo de un párrafo entre columnas o páginas.
-- Para una edición estable se ofrecen las tres familias PDF estándar. Una fuente incrustada arbitraria puede aproximarse a una de ellas.
-- Mover o recortar una imagen nativa consolida la región seleccionada como una nueva imagen. En PDFs con contenido superpuesto conviene comprobar el resultado visual.
-- PDFs firmados digitalmente pierden la validez de la firma después de cualquier modificación.
-- Formularios XFA dinámicos y algunos controles con JavaScript no son compatibles; el JavaScript del documento se desactiva por seguridad.
+## Límites conocidos
+
+- La detección de bloques y columnas es geométrica. Maquetaciones muy complejas pueden necesitar mover algún bloque manualmente.
+- La extensión recompone texto horizontal. Texto curvo, vertical o transformado puede aproximarse.
+- Para una edición estable se ofrecen las tres familias PDF estándar; una fuente incrustada arbitraria se aproxima a la familia equivalente.
+- Las tablas editables son las creadas por esta extensión. Una tabla original suele ser un conjunto de trazos sin semántica de filas o columnas.
+- Los textos de las celdas son bloques independientes; al borrar la cuadrícula no se borran automáticamente esos textos.
+- Cualquier modificación invalida una firma digital existente.
 - La edición puede estar limitada por los permisos del propio PDF.
 
 ## Licencia y coste
 
-El proyecto es gratuito y de código abierto bajo **GNU AGPL v3 o posterior**. Esta licencia es necesaria porque MuPDF se distribuye bajo AGPL. Si se necesita incorporar el motor en software cerrado, Artifex ofrece una licencia comercial de MuPDF.
+El proyecto es gratuito y de código abierto bajo **GNU AGPL v3 o posterior**, porque MuPDF se distribuye bajo AGPL. Para incorporar MuPDF en software cerrado, Artifex ofrece una licencia comercial.
 
 Consulta [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) para las dependencias incluidas.
 

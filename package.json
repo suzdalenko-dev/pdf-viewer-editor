@@ -1,8 +1,8 @@
 {
   "name": "pdf-viewer-editor",
   "displayName": "PDF Viewer & Editor",
-  "description": "View, edit, annotate, OCR, organize, and export PDF documents directly in Visual Studio Code.",
-  "version": "0.0.1",
+  "description": "A focused visual PDF editor for real text-block reflow, images, and editable tables in Visual Studio Code.",
+  "version": "0.0.2",
   "publisher": "suzdalenko-dev",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -21,9 +21,9 @@
     "pdf",
     "viewer",
     "editor",
-    "ocr",
-    "annotation",
-    "redaction"
+    "text",
+    "reflow",
+    "table"
   ],
   "engines": {
     "vscode": "^1.96.0"
@@ -106,11 +106,6 @@
             "Garbage-collect and compress the complete PDF."
           ],
           "description": "Default serialization mode used while editing."
-        },
-        "pdfViewerEditor.ocrLanguageDataUrl": {
-          "type": "string",
-          "default": "https://tessdata.projectnaptha.com/4.0.0_best_int",
-          "description": "Optional Tesseract language-data URL for OCR languages other than bundled Spanish and English."
         }
       }
     }
@@ -125,16 +120,12 @@
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
-    "@tesseract.js-data/eng": "1.0.0",
-    "@tesseract.js-data/spa": "1.0.0",
     "@types/node": "^24.0.0",
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "^3.9.2",
     "eslint": "^9.39.0",
     "fabric": "7.4.0",
     "mupdf": "1.28.0",
-    "tesseract.js": "7.0.0",
-    "tesseract.js-core": "7.0.0",
     "typescript": "^5.9.0"
   }
 }

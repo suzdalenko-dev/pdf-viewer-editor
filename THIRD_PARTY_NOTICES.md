@@ -15,16 +15,4 @@ PDF Viewer & Editor incluye las siguientes dependencias de ejecución. Las copia
 - Paquete: `fabric` 7.4.0
 - Licencia: MIT.
 
-## Tesseract.js
-
-- Proyecto: https://tesseract.projectnaptha.com/
-- Paquetes: `tesseract.js` 7.0.0 y `tesseract.js-core` 7.0.0
-- Licencia: Apache License 2.0.
-
-## Tesseract language data
-
-- Paquetes: `@tesseract.js-data/spa` 1.0.0 y `@tesseract.js-data/eng` 1.0.0
-- Proyecto: https://github.com/naptha/tessdata
-- Licencia declarada por los paquetes: MIT.
-
-Los nombres de productos y proyectos pertenecen a sus respectivos titulares. Esta extensión no está afiliada ni respaldada oficialmente por Artifex, Fabric.js ni Tesseract.js.
+Los nombres de productos y proyectos pertenecen a sus respectivos titulares. Esta extensión no está afiliada ni respaldada oficialmente por Artifex ni Fabric.js.
