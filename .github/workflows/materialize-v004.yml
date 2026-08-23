@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - release/v0.0.4-marketplace-ready
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -58,8 +61,6 @@ jobs:
           width = height = 256
           red = (211, 47, 47, 255)
           white = (255, 255, 255, 255)
-          transparent = (0, 0, 0, 0)
-
           pixels = [[red for _ in range(width)] for _ in range(height)]
 
           def rect(x1, y1, x2, y2, color):
@@ -67,21 +68,19 @@ jobs:
                   for x in range(max(0, x1), min(width, x2)):
                       pixels[y][x] = color
 
-          # White PDF document silhouette with a folded top-right corner.
           rect(55, 34, 181, 222, white)
           rect(181, 76, 202, 222, white)
           for y in range(34, 77):
               max_x = 181 + (y - 34) // 2
               rect(181, y, min(203, max_x + 1), y + 1, white)
 
-          # Red content bars inside the white document.
           rect(82, 116, 176, 130, red)
           rect(82, 145, 176, 159, red)
           rect(82, 174, 157, 188, red)
 
           raw = bytearray()
           for row in pixels:
-              raw.append(0)  # PNG filter type 0
+              raw.append(0)
               for rgba in row:
                   raw.extend(rgba)
 
@@ -106,9 +105,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           rm -rf .v004
-
           grep -qxF '.v004/**' .vscodeignore || printf '\n.v004/**\n' >> .vscodeignore
           grep -qxF '.v004/' .gitignore || printf '\n.v004/\n' >> .gitignore
 
@@ -150,10 +147,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          # This workflow is intentionally one-shot; remove it from the final branch.
           rm -f .github/workflows/materialize-v004.yml
-
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
