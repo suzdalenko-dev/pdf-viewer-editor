@@ -77,6 +77,7 @@ jobs:
 
           anchor = max(candidates, key=lambda block: (block.b + block.size, block.size))
           trailing_partial = len(partial_lines) - (anchor.b + anchor.size)
+          candidate = ''.join(partial_lines[:anchor.b]) + ''.join(old_lines[anchor.a:])
 
           print(f'Old engine: {len(old)} chars / {len(old_lines)} lines')
           print(f'Partial v0.0.4: {len(partial)} chars / {len(partial_lines)} lines')
@@ -88,7 +89,279 @@ jobs:
               f'size={anchor.size}, trailing_partial_lines={trailing_partial}'
           )
 
-          candidate = ''.join(partial_lines[:anchor.b]) + ''.join(old_lines[anchor.a:])
+          # v0.0.4 expects visual rows to retain their original fragments so it can
+          # map mouse selections back to exact character ranges.
+          visual_return = """    return {\n      text,\n      rect: row.rect,"""
+          visual_return_with_fragments = """    return {\n      text,\n      fragments: row.fragments,\n      rect: row.rect,"""
+          if visual_return in candidate and visual_return_with_fragments not in candidate:
+              candidate = candidate.replace(
+                  visual_return,
+                  visual_return_with_fragments,
+                  1
+              )
+
+          helpers = r'''
+function splitVisualLinesIntoParagraphs(visualLines) {
+  if (!Array.isArray(visualLines) || visualLines.length === 0) {
+    return [];
+  }
+  if (visualLines.length === 1) {
+    return [[visualLines[0]]];
+  }
+
+  const lines = [...visualLines].sort((left, right) => {
+    const yDifference = left.baseline[1] - right.baseline[1];
+    return Math.abs(yDifference) > 0.75
+      ? yDifference
+      : left.rect[0] - right.rect[0];
+  });
+  const paragraphs = [];
+  let paragraph = [lines[0]];
+
+  for (const line of lines.slice(1)) {
+    const previous = paragraph.at(-1);
+    const previousHeight = Math.max(1, previous.rect[3] - previous.rect[1]);
+    const currentHeight = Math.max(1, line.rect[3] - line.rect[1]);
+    const fontSize = Math.max(
+      1,
+      Number(previous.font?.size || 0),
+      Number(line.font?.size || 0)
+    );
+    const verticalGap = line.rect[1] - previous.rect[3];
+    const baselineGap = line.baseline[1] - previous.baseline[1];
+    const expectedLineHeight = Math.max(previousHeight, currentHeight, fontSize * 1.05);
+    const paragraphGap = Math.max(3, fontSize * 0.55);
+    const startsNewParagraph =
+      verticalGap > paragraphGap ||
+      baselineGap > expectedLineHeight * 1.75;
+
+    if (startsNewParagraph) {
+      paragraphs.push(paragraph);
+      paragraph = [line];
+    } else {
+      paragraph.push(line);
+    }
+  }
+
+  paragraphs.push(paragraph);
+  return paragraphs;
+}
+
+function decorateParagraphLines(paragraphLines, blockIndex) {
+  let text = '';
+  const lines = [];
+
+  for (const sourceLine of paragraphLines) {
+    const lineText = String(sourceLine.text || '').trim();
+    if (!lineText) {
+      continue;
+    }
+    const separator = text ? ' ' : '';
+    const start = text.length + separator.length;
+    text += separator + lineText;
+    const end = text.length;
+    const lineIndex = lines.length;
+    lines.push({
+      ...sourceLine,
+      text: lineText,
+      blockIndex,
+      lineIndex,
+      start,
+      end,
+      startOffset: start,
+      endOffset: end,
+      textStart: start,
+      textEnd: end
+    });
+  }
+
+  return { text, lines };
+}
+
+function layoutRichTextBlock(rect, runs, metrics, alignment = 0) {
+  const normalizedRuns = (Array.isArray(runs) ? runs : [])
+    .map((run) => ({
+      text: String(run?.text || '').replaceAll('\r\n', '\n').replaceAll('\r', '\n'),
+      values: run?.values || {}
+    }))
+    .filter((run) => run.text.length > 0);
+
+  if (normalizedRuns.length === 0) {
+    return { height: 0, entries: [], lines: [] };
+  }
+
+  const width = Math.max(24, rect[2] - rect[0]);
+  const fonts = new Map();
+  const getFont = (fontName) => {
+    const name = String(fontName || 'Helvetica');
+    if (!fonts.has(name)) {
+      fonts.set(name, new mupdf.Font(name));
+    }
+    return fonts.get(name);
+  };
+  const itemWidth = (item) => measureText(
+    getFont(item.values.fontName),
+    item.character,
+    Math.max(4, Number(item.values.fontSize || 12))
+  );
+  const lineWidth = (items) => items.reduce((sum, item) => sum + itemWidth(item), 0);
+  const trimLine = (items) => {
+    let start = 0;
+    let end = items.length;
+    while (start < end && /\s/u.test(items[start].character)) {
+      start += 1;
+    }
+    while (end > start && /\s/u.test(items[end - 1].character)) {
+      end -= 1;
+    }
+    return items.slice(start, end);
+  };
+
+  try {
+    const items = [];
+    for (const run of normalizedRuns) {
+      for (const character of run.text) {
+        items.push({ character, values: run.values });
+      }
+    }
+
+    const wrappedLines = [];
+    let current = [];
+    let currentWidth = 0;
+
+    const commitLine = (lineItems) => {
+      wrappedLines.push(trimLine(lineItems));
+    };
+
+    for (const item of items) {
+      if (item.character === '\n') {
+        commitLine(current);
+        current = [];
+        currentWidth = 0;
+        continue;
+      }
+
+      const widthToAdd = itemWidth(item);
+      if (current.length > 0 && currentWidth + widthToAdd > width + 0.5) {
+        let breakAt = -1;
+        for (let index = current.length - 1; index >= 0; index -= 1) {
+          if (/\s/u.test(current[index].character)) {
+            breakAt = index;
+            break;
+          }
+        }
+
+        if (breakAt >= 0) {
+          const carry = current.slice(breakAt + 1);
+          commitLine(current.slice(0, breakAt));
+          current = carry;
+          currentWidth = lineWidth(current);
+        } else {
+          commitLine(current);
+          current = [];
+          currentWidth = 0;
+        }
+      }
+
+      if (/\s/u.test(item.character) && current.length === 0) {
+        continue;
+      }
+      current.push(item);
+      currentWidth += widthToAdd;
+    }
+    commitLine(current);
+
+    const maximumFontSize = Math.max(
+      4,
+      ...normalizedRuns.map((run) => Math.max(4, Number(run.values.fontSize || 12)))
+    );
+    const baselineOffset = clampNumber(
+      Number(metrics?.baselineOffsetRatio || 1.05) * maximumFontSize,
+      maximumFontSize * 0.75,
+      maximumFontSize * 1.5
+    );
+    const lineHeight = clampNumber(
+      Number(metrics?.lineHeightRatio || 1.25) * maximumFontSize,
+      maximumFontSize,
+      maximumFontSize * 2
+    );
+    const descent = clampNumber(
+      Number(metrics?.descentRatio || 0.25) * maximumFontSize,
+      maximumFontSize * 0.12,
+      maximumFontSize * 0.6
+    );
+    const height = baselineOffset + Math.max(0, wrappedLines.length - 1) * lineHeight + descent;
+    const entries = [];
+
+    wrappedLines.forEach((lineItems, lineIndex) => {
+      const measuredWidth = lineWidth(lineItems);
+      let x = rect[0];
+      if (alignment === 1) {
+        x = rect[0] + (width - measuredWidth) / 2;
+      } else if (alignment === 2) {
+        x = rect[2] - measuredWidth;
+      }
+      const baselineY = rect[1] + baselineOffset + lineIndex * lineHeight;
+      let segment = [];
+      let segmentKey = null;
+
+      const flushSegment = () => {
+        if (segment.length === 0) {
+          return;
+        }
+        const values = segment[0].values;
+        const text = segment.map((entry) => entry.character).join('');
+        if (text) {
+          entries.push({
+            text,
+            baseline: [x, baselineY],
+            fontName: values.fontName || 'Helvetica',
+            fontSize: Math.max(4, Number(values.fontSize || 12)),
+            color: normalizeColor(values.color, [0, 0, 0])
+          });
+          x += measureText(
+            getFont(values.fontName),
+            text,
+            Math.max(4, Number(values.fontSize || 12))
+          );
+        }
+        segment = [];
+        segmentKey = null;
+      };
+
+      for (const entry of lineItems) {
+        const values = entry.values;
+        const key = JSON.stringify([
+          values.fontName || 'Helvetica',
+          Math.max(4, Number(values.fontSize || 12)),
+          normalizeColor(values.color, [0, 0, 0])
+        ]);
+        if (segmentKey !== null && key !== segmentKey) {
+          flushSegment();
+        }
+        segmentKey = key;
+        segment.push(entry);
+      }
+      flushSegment();
+    });
+
+    return {
+      height,
+      entries,
+      lines: wrappedLines.map((line) => line.map((item) => item.character).join(''))
+    };
+  } finally {
+    destroyAll(fonts.values());
+  }
+}
+'''
+
+          marker = 'function layoutTextBlock(rect, values, metrics, originalBlock = null) {'
+          if marker not in candidate:
+              raise RuntimeError('Could not locate layoutTextBlock insertion point')
+          if 'function layoutRichTextBlock(' not in candidate:
+              candidate = candidate.replace(marker, helpers + '\n' + marker, 1)
+
           Path('media/webview/pdf-engine.js').write_text(candidate, encoding='utf-8')
 
           diff = list(difflib.unified_diff(
@@ -101,10 +374,15 @@ jobs:
           ))
           print(f'Recovered engine: {len(candidate)} chars')
           print(f'Diff lines vs 0.0.3: {len(diff)}')
-          print('\n'.join(diff[:240]))
-          if len(diff) > 240:
-              print(f'... diff truncated in log ({len(diff) - 240} more lines)')
+          print('\n'.join(diff[:260]))
+          if len(diff) > 260:
+              print(f'... diff truncated in log ({len(diff) - 260} more lines)')
           PY
+
+          echo '--- Selection offset references in reconstructed main.js ---'
+          grep -nE 'startOffset|endOffset|textStart|textEnd|line\.(start|end)|selection(Start|End)|range(Start|End)' media/webview/main.js | head -80 || true
+          echo '--- Relevant v0.0.4 test names ---'
+          grep -nE 'test\(|paragraph|selection|editTextRange|insertImageBlock|insertTableBlock|visualLines' test/pdf-engine.test.mjs | head -120 || true
 
       - name: Generate Marketplace icon
         shell: python
