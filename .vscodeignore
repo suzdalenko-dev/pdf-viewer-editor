@@ -1,0 +1,10 @@
+.github/**
+.gitignore
+.vscode/**
+test/**
+scripts/**
+node_modules/**
+eslint.config.js
+jsconfig.json
+package-lock.json
+*.vsix

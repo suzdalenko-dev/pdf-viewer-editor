@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "maxNodeModuleJsDepth": 0,
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node",
+      "vscode"
+    ],
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "media/vendor"
+  ]
+}

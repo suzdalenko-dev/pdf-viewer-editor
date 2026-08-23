@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: prepare",
+      "type": "npm",
+      "script": "prepare",
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: check",
+      "type": "npm",
+      "script": "check",
+      "problemMatcher": [
+        "$eslint-stylish"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}
