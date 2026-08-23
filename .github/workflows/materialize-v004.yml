@@ -1,0 +1,162 @@
+name: Materialize v0.0.4
+
+on:
+  push:
+    branches:
+      - release/v0.0.4-marketplace-ready
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/v0.0.4-marketplace-ready
+          fetch-depth: 0
+
+      - name: Reconstruct v0.0.4 source files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          decode_payload() {
+            local source="$1"
+            local target="$2"
+            mkdir -p "$(dirname "$target")"
+            base64 --decode "$source" | gzip --decompress > "$target"
+          }
+
+          decode_payload .v004/CHANGELOG.md.gz.b64 CHANGELOG.md
+          decode_payload .v004/README.md.gz.b64 README.md
+          decode_payload .v004/package.json.gz.b64 package.json
+          decode_payload .v004/package-lock.json.gz.b64 package-lock.json
+          decode_payload .v004/styles.css.gz.b64 media/webview/styles.css
+          decode_payload .v004/pdf-engine.test.mjs.gz.b64 test/pdf-engine.test.mjs
+
+          cat .v004/main.js.gz.b64.part* \
+            | base64 --decode \
+            | gzip --decompress \
+            > media/webview/main.js
+
+          cat .v004/pdf-engine.js.gz.b64.part* \
+            | base64 --decode \
+            | gzip --decompress \
+            > media/webview/pdf-engine.js
+
+      - name: Generate Marketplace icon
+        shell: python
+        run: |
+          import os
+          import struct
+          import zlib
+
+          width = height = 256
+          red = (211, 47, 47, 255)
+          white = (255, 255, 255, 255)
+          transparent = (0, 0, 0, 0)
+
+          pixels = [[red for _ in range(width)] for _ in range(height)]
+
+          def rect(x1, y1, x2, y2, color):
+              for y in range(max(0, y1), min(height, y2)):
+                  for x in range(max(0, x1), min(width, x2)):
+                      pixels[y][x] = color
+
+          # White PDF document silhouette with a folded top-right corner.
+          rect(55, 34, 181, 222, white)
+          rect(181, 76, 202, 222, white)
+          for y in range(34, 77):
+              max_x = 181 + (y - 34) // 2
+              rect(181, y, min(203, max_x + 1), y + 1, white)
+
+          # Red content bars inside the white document.
+          rect(82, 116, 176, 130, red)
+          rect(82, 145, 176, 159, red)
+          rect(82, 174, 157, 188, red)
+
+          raw = bytearray()
+          for row in pixels:
+              raw.append(0)  # PNG filter type 0
+              for rgba in row:
+                  raw.extend(rgba)
+
+          def chunk(kind, data):
+              return (
+                  struct.pack('>I', len(data))
+                  + kind
+                  + data
+                  + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+              )
+
+          png = bytearray(b'\x89PNG\r\n\x1a\n')
+          png += chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0))
+          png += chunk(b'IDAT', zlib.compress(bytes(raw), 9))
+          png += chunk(b'IEND', b'')
+
+          os.makedirs('images', exist_ok=True)
+          with open('images/icon.png', 'wb') as fh:
+              fh.write(png)
+
+      - name: Clean staging payload and harden package exclusions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf .v004
+
+          grep -qxF '.v004/**' .vscodeignore || printf '\n.v004/**\n' >> .vscodeignore
+          grep -qxF '.v004/' .gitignore || printf '\n.v004/\n' >> .gitignore
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (pkg.version !== '0.0.4') {
+            throw new Error(`Expected package version 0.0.4, got ${pkg.version}`);
+          }
+          if (pkg.icon !== 'images/icon.png') {
+            pkg.icon = 'images/icon.png';
+            fs.writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`);
+          }
+          NODE
+
+          test -s images/icon.png
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify source
+        run: npm run check
+
+      - name: Package and verify VSIX
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run package
+          test -f pdf-viewer-editor-0.0.4.vsix
+          unzip -l pdf-viewer-editor-0.0.4.vsix > /tmp/vsix-files.txt
+          grep -q 'extension/images/icon.png' /tmp/vsix-files.txt
+          if grep -q 'extension/.v004/' /tmp/vsix-files.txt; then
+            echo 'ERROR: .v004 payload leaked into VSIX' >&2
+            exit 1
+          fi
+          rm -f pdf-viewer-editor-0.0.4.vsix
+
+      - name: Commit release-ready source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # This workflow is intentionally one-shot; remove it from the final branch.
+          rm -f .github/workflows/materialize-v004.yml
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git status --short
+          git commit -m 'release: prepare v0.0.4 for VS Code Marketplace'
+          git push origin HEAD:release/v0.0.4-marketplace-ready
