@@ -27,6 +27,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          cp media/webview/pdf-engine.js /tmp/pdf-engine-v003.js
+
           decode_payload() {
             local source="$1"
             local target="$2"
@@ -46,10 +48,66 @@ jobs:
             | gzip --decompress \
             > media/webview/main.js
 
-          cat .v004/pdf-engine.js.gz.b64.part* \
-            | base64 --decode \
-            | gzip --decompress \
-            > media/webview/pdf-engine.js
+          python - <<'PY'
+          import base64
+          import difflib
+          import glob
+          import zlib
+          from pathlib import Path
+
+          encoded = ''.join(
+              Path(path).read_text(encoding='utf-8').strip()
+              for path in sorted(glob.glob('.v004/pdf-engine.js.gz.b64.part*'))
+          )
+          compressed = base64.b64decode(encoded)
+          inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+          partial_bytes = inflater.decompress(compressed)
+          partial = partial_bytes.decode('utf-8')
+          old = Path('/tmp/pdf-engine-v003.js').read_text(encoding='utf-8')
+
+          matcher = difflib.SequenceMatcher(None, old, partial, autojunk=False)
+          blocks = matcher.get_matching_blocks()
+          candidates = [
+              block for block in blocks
+              if block.size >= 200 and (len(partial) - (block.b + block.size)) <= 4000
+          ]
+          if not candidates:
+              raise RuntimeError('Could not find a safe common anchor near the truncated payload tail')
+
+          anchor = max(candidates, key=lambda block: (block.b + block.size, block.size))
+          trailing_partial = len(partial) - (anchor.b + anchor.size)
+
+          print(f'Old engine length: {len(old)}')
+          print(f'Partial v0.0.4 length: {len(partial)}')
+          print(f'Inflater reached gzip EOF: {inflater.eof}')
+          print(
+              'Recovery anchor: '
+              f'old[{anchor.a}:{anchor.a + anchor.size}] == '
+              f'partial[{anchor.b}:{anchor.b + anchor.size}], '
+              f'size={anchor.size}, trailing_partial={trailing_partial}'
+          )
+
+          # Use the verified common block as the splice point. The staged v0.0.4
+          # prefix wins; the unchanged v0.0.3 tail supplies bytes that never made
+          # it into the truncated gzip payload.
+          candidate = partial[:anchor.b] + old[anchor.a:]
+          Path('media/webview/pdf-engine.js').write_text(candidate, encoding='utf-8')
+
+          # Report changed regions for auditability without dumping the whole file.
+          diff = list(difflib.unified_diff(
+              old.splitlines(),
+              candidate.splitlines(),
+              fromfile='pdf-engine-v0.0.3.js',
+              tofile='pdf-engine-v0.0.4-recovered.js',
+              n=2,
+              lineterm='',
+          ))
+          print(f'Recovered engine length: {len(candidate)}')
+          print(f'Diff lines vs 0.0.3: {len(diff)}')
+          print('\n'.join(diff[:240]))
+          if len(diff) > 240:
+              print(f'... diff truncated in log ({len(diff) - 240} more lines)')
+          PY
 
       - name: Generate Marketplace icon
         shell: python
