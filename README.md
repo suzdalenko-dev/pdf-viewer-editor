@@ -2,13 +2,13 @@
 
 Editor visual de PDF gratuito para Visual Studio Code, construido en JavaScript con MuPDF.js y Fabric.js.
 
-La versión `0.0.4` se concentra en una tarea: **seleccionar y editar directamente el contenido visible de forma natural**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
+La versión `0.0.5` se concentra en una tarea: **seleccionar y editar directamente el contenido visible de forma natural**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
 
 > Conserva una copia del documento original cuando trabajes con archivos importantes. Un PDF describe objetos colocados en coordenadas y no siempre contiene párrafos equivalentes a los de Word; esta extensión reconstruye bloques editables a partir de la estructura visual detectada por MuPDF.
 
 ## Edición de texto con reflujo
 
-- Hacer clic sobre cualquier línea para seleccionar solo su párrafo visual, sin rectángulos gigantes.
+- Hacer clic sobre una línea selecciona solo esa línea; arrastrar selecciona exactamente palabras o frases, sin rectángulos gigantes.
 - Arrastrar sobre una palabra o frase y editar, borrar, copiar o cambiar su formato.
 - Editar un párrafo completo con `Editar contenido`.
 - Añadir texto en cualquier punto de la página.

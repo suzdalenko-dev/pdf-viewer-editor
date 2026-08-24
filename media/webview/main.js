@@ -267,6 +267,10 @@ function textLineClicked(event) {
     return;
   }
   hideInsertMenu();
+  if (event.detail >= 2) {
+    window.requestAnimationFrame(updateTextRangeFromSelection);
+    return;
+  }
   const line = event.currentTarget;
   window.requestAnimationFrame(() => {
     const selection = window.getSelection();

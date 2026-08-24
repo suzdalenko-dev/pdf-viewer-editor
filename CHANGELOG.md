@@ -2,6 +2,16 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí.
 
+## 0.0.5 - 2026-08-24
+
+### Corregido
+
+- Selección nativa exacta de líneas, palabras y frases sin rectángulo azul de párrafo.
+- Zoom inicial al 100%.
+- Botón Guardar escribe el PDF abierto y muestra confirmación visual.
+- Icono 256×256 renovado y validado como asset del VSIX/Marketplace.
+
+
 ## 0.0.4 - 2026-08-23
 
 ### Corregido
