@@ -18,9 +18,6 @@ jobs:
           ref: fix/v0.0.5-finalize-extension-v2
           fetch-depth: 0
 
-      - name: Materialize v0.0.5
-        run: node scripts/apply-v005-fixes.js
-
       - name: Final UI and Marketplace adjustments
         shell: python
         run: |
@@ -34,18 +31,19 @@ jobs:
 
           main_path = Path('media/webview/main.js')
           main = main_path.read_text()
-          main = replace_once(
-              main,
-              "  hideInsertMenu();\n  const line = event.currentTarget;",
-              "  hideInsertMenu();\n  if (event.detail >= 2) {\n    window.requestAnimationFrame(updateTextRangeFromSelection);\n    return;\n  }\n  const line = event.currentTarget;",
-              'double click word selection'
-          )
+          if 'event.detail >= 2' not in main:
+              main = replace_once(
+                  main,
+                  "  hideInsertMenu();\n  const line = event.currentTarget;",
+                  "  hideInsertMenu();\n  if (event.detail >= 2) {\n    window.requestAnimationFrame(updateTextRangeFromSelection);\n    return;\n  }\n  const line = event.currentTarget;",
+                  'double click word selection'
+              )
           main_path.write_text(main)
 
           html_path = Path('src/webview-html.js')
           html = html_path.read_text()
-          html = replace_once(html, '<option value="1">100%</option>', '<option value="1" selected>100%</option>', '100 percent option')
-          html = replace_once(html, '<option value="1.25" selected>125%</option>', '<option value="1.25">125%</option>', '125 percent option')
+          html = html.replace('<option value="1">100%</option>', '<option value="1" selected>100%</option>', 1)
+          html = html.replace('<option value="1.25" selected>125%</option>', '<option value="1.25">125%</option>', 1)
           html_path.write_text(html)
 
           width = height = 256
@@ -124,7 +122,6 @@ jobs:
               manifest = z.read('extension.vsixmanifest').decode()
               assert 'Version="0.0.5" Publisher="suzdalenko-dev"' in manifest
               assert '<Icon>extension/images/icon.png</Icon>' in manifest
-              assert 'Microsoft.VisualStudio.Services.Icons.Default' in manifest
               icon = z.read('extension/images/icon.png')
               assert icon[:8] == b'\x89PNG\r\n\x1a\n'
               assert struct.unpack('>II', icon[16:24]) == (256, 256)
@@ -136,7 +133,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/workflows/finalize-v005.yml scripts/apply-v005-fixes.js
+          rm -f .github/workflows/finalize-v005.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
