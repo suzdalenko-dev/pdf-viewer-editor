@@ -67,6 +67,13 @@ const elements = Object.fromEntries([
   'dialog-content', 'dialog-cancel', 'dialog-confirm', 'image-file-input'
 ].map((id) => [id, document.getElementById(id)]));
 
+const blockEditorResizeObserver = new window.ResizeObserver(() => {
+  if (state.editing && !elements['block-editor'].classList.contains('hidden')) {
+    syncEditingRectFromEditor();
+  }
+});
+blockEditorResizeObserver.observe(elements['block-editor-text']);
+
 window.addEventListener('message', async (event) => {
   const message = event.data;
   if (message.type === 'load-document') {
@@ -228,8 +235,40 @@ function initializeOrResizeFabricCanvas() {
       height: state.render.height
     });
   }
+  syncFabricCanvasGeometry();
   state.fabricCanvas.clear();
   state.overlayObjects = [];
+}
+
+function syncFabricCanvasGeometry() {
+  if (!state.fabricCanvas || !state.render) {
+    return;
+  }
+  const width = `${state.render.width}px`;
+  const height = `${state.render.height}px`;
+  const wrapper = state.fabricCanvas.wrapperEl;
+  if (wrapper) {
+    Object.assign(wrapper.style, {
+      position: 'absolute',
+      left: '0px',
+      top: '0px',
+      width,
+      height,
+      margin: '0px'
+    });
+  }
+  for (const canvas of [state.fabricCanvas.lowerCanvasEl, state.fabricCanvas.upperCanvasEl]) {
+    if (!canvas) {
+      continue;
+    }
+    Object.assign(canvas.style, {
+      left: '0px',
+      top: '0px',
+      width,
+      height,
+      margin: '0px'
+    });
+  }
 }
 
 function buildTextLayer() {
@@ -408,13 +447,12 @@ function clearTextRangeHighlights() {
   }
 }
 
-function renderTextRangeHighlights() {
-  clearTextRangeHighlights();
-  const selectedRange = state.textRange;
+function getTextRangeRects(selectedRange) {
   if (!selectedRange || !state.pageModel) {
-    return;
+    return [];
   }
 
+  const rects = [];
   const lines = state.pageModel.textLines.filter((line) =>
     line.blockIndex === selectedRange.blockIndex &&
     selectedRange.end > line.textStart &&
@@ -428,33 +466,53 @@ function renderTextRangeHighlights() {
       continue;
     }
 
-    let rect = null;
     const characters = Array.isArray(line.characters) ? line.characters : [];
     const selectedCharacters = characters.slice(localStart, localEnd)
       .map((character) => character.rect)
       .filter((candidate) => Array.isArray(candidate) && candidate.length === 4);
 
     if (selectedCharacters.length > 0) {
-      rect = selectedCharacters.reduce((result, candidate) => result
+      rects.push(selectedCharacters.reduce((result, candidate) => result
         ? [
             Math.min(result[0], candidate[0]),
             Math.min(result[1], candidate[1]),
             Math.max(result[2], candidate[2]),
             Math.max(result[3], candidate[3])
           ]
-        : [...candidate], null);
-    } else {
-      const lineWidth = Math.max(1, line.rect[2] - line.rect[0]);
-      const startRatio = localStart / Math.max(1, line.text.length);
-      const endRatio = localEnd / Math.max(1, line.text.length);
-      rect = [
-        line.rect[0] + lineWidth * startRatio,
-        line.rect[1],
-        line.rect[0] + lineWidth * endRatio,
-        line.rect[3]
-      ];
+        : [...candidate], null));
+      continue;
     }
 
+    const lineWidth = Math.max(1, line.rect[2] - line.rect[0]);
+    const startRatio = localStart / Math.max(1, line.text.length);
+    const endRatio = localEnd / Math.max(1, line.text.length);
+    rects.push([
+      line.rect[0] + lineWidth * startRatio,
+      line.rect[1],
+      line.rect[0] + lineWidth * endRatio,
+      line.rect[3]
+    ]);
+  }
+
+  return rects;
+}
+
+function getTextRangeRect(selectedRange) {
+  const rects = getTextRangeRects(selectedRange);
+  if (rects.length === 0) {
+    return null;
+  }
+  return rects.reduce((result, rect) => [
+    Math.min(result[0], rect[0]),
+    Math.min(result[1], rect[1]),
+    Math.max(result[2], rect[2]),
+    Math.max(result[3], rect[3])
+  ], [...rects[0]]);
+}
+
+function renderTextRangeHighlights() {
+  clearTextRangeHighlights();
+  for (const rect of getTextRangeRects(state.textRange)) {
     const screen = pdfRectToScreen(rect);
     const highlight = document.createElement('div');
     highlight.className = 'text-range-highlight';
@@ -678,6 +736,11 @@ function addOverlayObject(meta, options = {}) {
     top: screen[1],
     width: Math.max(2, screen[2] - screen[0]),
     height: Math.max(2, screen[3] - screen[1]),
+    originX: 'left',
+    originY: 'top',
+    strokeUniform: true,
+    centeredScaling: false,
+    padding: 0,
     fill: options.fill || 'rgba(0, 0, 0, 0.001)',
     stroke: options.selectable === false ? color : 'rgba(0, 0, 0, 0)',
     strokeWidth: 1.25,
@@ -959,13 +1022,14 @@ function screenPointToPdf(point) {
 }
 
 function objectScreenRectToPdf(object) {
-  const bounds = object.getBoundingRect();
-  return screenRectToPdf([
-    bounds.left,
-    bounds.top,
-    bounds.left + Math.max(2, bounds.width),
-    bounds.top + Math.max(2, bounds.height)
-  ]);
+  // All editable Fabric objects are axis-aligned with a left/top origin.
+  // Using the object's content box (not getBoundingRect, which includes the
+  // visual stroke) keeps the blue frame and the PDF target rectangle identical.
+  const left = Number(object.left || 0);
+  const top = Number(object.top || 0);
+  const width = Math.max(2, Number(object.width || 0) * Math.abs(Number(object.scaleX || 1)));
+  const height = Math.max(2, Number(object.height || 0) * Math.abs(Number(object.scaleY || 1)));
+  return screenRectToPdf([left, top, left + width, top + height]);
 }
 
 function setTextControlsFromBlock(block) {
@@ -1079,7 +1143,8 @@ function openSelectedRangeEditor() {
     blockIndex: block.index,
     start: selectedRange.start,
     end: selectedRange.end,
-    rect: block.rect,
+    sourceRect: block.rect,
+    rect: getTextRangeRect(selectedRange) || block.rect,
     text: selectedRange.text
   });
 }
@@ -1101,7 +1166,7 @@ function openNewTextEditor(pointOrAnchor) {
   openBlockEditor({
     mode: 'add',
     blockIndex: null,
-    rect: [x, y, x + width, y + 18],
+    rect: [x, y, x + width, Math.min(bounds[3] - 8, y + 72)],
     text: ''
   });
   setTool('edit');
@@ -1115,25 +1180,50 @@ function showTextContext() {
 }
 
 function openBlockEditor(editing) {
-  state.editing = editing;
+  state.editing = { ...editing };
   hideEditRangeButton();
   clearNativeTextSelection();
   const screen = pdfRectToScreen(editing.rect);
   const editor = elements['block-editor'];
-  editor.style.left = `${clamp(screen[0], 0, Math.max(0, state.render.width - 190))}px`;
-  editor.style.top = `${clamp(screen[1], 0, Math.max(0, state.render.height - 90))}px`;
-  editor.style.width = `${Math.max(180, Math.min(state.render.width, screen[2] - screen[0]))}px`;
+  const textarea = elements['block-editor-text'];
+  const left = clamp(screen[0], 0, Math.max(0, state.render.width - 24));
+  const top = clamp(screen[1], 0, Math.max(0, state.render.height - 18));
+  const requestedWidth = Math.max(24, screen[2] - screen[0]);
+  const requestedHeight = Math.max(18, screen[3] - screen[1]);
+  const width = clamp(requestedWidth, 24, Math.max(24, state.render.width - left));
+  const height = clamp(requestedHeight, 18, Math.max(18, state.render.height - top));
+
+  editor.style.left = `${left}px`;
+  editor.style.top = `${top}px`;
+  textarea.style.width = `${width}px`;
+  textarea.style.height = `${height}px`;
   editor.classList.remove('hidden');
-  elements['block-editor-text'].value = editing.text;
+  textarea.value = editing.text;
   syncBlockEditorPreview();
   autoGrowBlockEditor();
-  elements['block-editor-text'].focus();
-  elements['block-editor-text'].select();
+  syncEditingRectFromEditor();
+  textarea.focus();
+  textarea.select();
   setStatus(editing.mode === 'add'
-    ? 'Escribe el texto nuevo y pulsa Aplicar.'
+    ? 'Escribe dentro del marco azul. Puedes arrastrar su esquina para cambiar anchura y altura.'
     : (editing.mode === 'range'
-      ? 'Edita la selección; el párrafo se recompondrá automáticamente.'
-      : 'Edita el párrafo; el contenido inferior se desplazará automáticamente.'));
+      ? 'El marco azul coincide con la selección. Edita el texto y redimensiona el área si lo necesitas.'
+      : 'El marco azul es el área real del bloque. Redimensiónalo para cambiar el reflow.'));
+}
+
+function syncEditingRectFromEditor() {
+  if (!state.editing || elements['block-editor'].classList.contains('hidden')) {
+    return;
+  }
+  const textareaRect = elements['block-editor-text'].getBoundingClientRect();
+  const stageRect = elements['page-stage'].getBoundingClientRect();
+  const screenRect = normalizeRect([
+    clamp(textareaRect.left - stageRect.left, 0, state.render.width),
+    clamp(textareaRect.top - stageRect.top, 0, state.render.height),
+    clamp(textareaRect.right - stageRect.left, 0, state.render.width),
+    clamp(textareaRect.bottom - stageRect.top, 0, state.render.height)
+  ]);
+  state.editing.rect = screenRectToPdf(screenRect);
 }
 
 function syncBlockEditorPreview() {
@@ -1166,8 +1256,14 @@ function autoGrowBlockEditor() {
     return;
   }
   const textarea = elements['block-editor-text'];
-  textarea.style.height = 'auto';
-  textarea.style.height = `${clamp(textarea.scrollHeight + 4, 64, 420)}px`;
+  const editorRect = textarea.getBoundingClientRect();
+  const stageRect = elements['page-stage'].getBoundingClientRect();
+  const maximumHeight = Math.max(18, state.render.height - (editorRect.top - stageRect.top));
+  const requiredHeight = clamp(textarea.scrollHeight + 4, 18, maximumHeight);
+  if (requiredHeight > editorRect.height + 1) {
+    textarea.style.height = `${requiredHeight}px`;
+  }
+  syncEditingRectFromEditor();
 }
 
 function cancelBlockEditor() {
@@ -1211,7 +1307,10 @@ async function applyBlockEditor() {
       restoreText: text || null
     });
   } else {
-    engine.editTextBlock(state.currentPage, editing.blockIndex, values);
+    engine.editTextBlock(state.currentPage, editing.blockIndex, {
+      ...values,
+      targetRect: editing.rect
+    });
     await commitAndRefresh(text ? 'Editar texto' : 'Eliminar texto', {
       restoreText: text || null
     });

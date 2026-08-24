@@ -2,6 +2,17 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí.
 
+## 0.0.7 - 2026-08-24
+
+### Corregido
+
+- El marco azul de edición de texto pasa a ser el área real del contenido editable.
+- El editor de texto se puede redimensionar en anchura y altura; el reflow usa esa anchura al aplicar.
+- La selección parcial usa el rectángulo exacto de los caracteres seleccionados.
+- Las tablas guardan y recuperan su rectángulo exacto, evitando que el marco Fabric quede desplazado respecto a la cuadrícula.
+- Las capas PDF, texto y Fabric se fuerzan al mismo origen de coordenadas.
+- Se mantiene el icono `images/icon.png` dentro del VSIX y se añade un indicador visible `v0.0.7` para comprobar la versión instalada.
+
 ## 0.0.6 - 2026-08-24
 
 ### Corregido

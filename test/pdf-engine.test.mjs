@@ -403,3 +403,54 @@ test('text insertion, free positioning, and editable tables work as PDF objects'
     engine.destroy();
   }
 });
+
+
+test('v0.0.7 text edits honor a new bounding box width and position', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createFlowingTextPdf());
+    const original = engine.getPageModel(0).textBlocks.find((block) =>
+      block.text.includes('First paragraph')
+    );
+    assert.ok(original);
+    const targetRect = [62, original.rect[1] + 4, 176, original.rect[3] + 4];
+    const result = engine.editTextBlock(0, original.index, {
+      text: 'First paragraph edited inside a deliberately narrower resizable box with enough words to wrap.',
+      fontFamily: 'Helvetica',
+      fontSize: 12,
+      targetRect
+    });
+    assert.ok(Math.abs(result.rect[0] - targetRect[0]) < 0.01);
+    assert.ok(Math.abs(result.rect[2] - targetRect[2]) < 0.01);
+    const edited = engine.getPageModel(0).textBlocks.find((block) =>
+      block.text.includes('deliberately narrower')
+    );
+    assert.ok(edited);
+    assert.ok(edited.rect[0] >= targetRect[0] - 3);
+    assert.ok(edited.rect[2] <= targetRect[2] + 3);
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('v0.0.7 table metadata keeps the blue selection rectangle equal to the table', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createOnePagePdf());
+    const initialRect = [42, 90, 242, 190];
+    engine.addTable(0, initialRect, 3, 4, { borderWidth: 1.5 });
+    let table = engine.getPageModel(0).annotations.find((annotation) => annotation.table);
+    assert.ok(table);
+    assert.deepEqual(table.rect.map((value) => Math.round(value)), initialRect);
+
+    const resizedRect = [55, 105, 270, 235];
+    engine.updateTable(0, table.index, resizedRect, 4, 5, { borderWidth: 2 });
+    table = engine.getPageModel(0).annotations.find((annotation) => annotation.table);
+    assert.ok(table);
+    assert.deepEqual(table.rect.map((value) => Math.round(value)), resizedRect);
+    assert.equal(table.table.rows, 4);
+    assert.equal(table.table.columns, 5);
+  } finally {
+    engine.destroy();
+  }
+});

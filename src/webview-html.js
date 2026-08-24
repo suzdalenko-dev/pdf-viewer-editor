@@ -76,12 +76,13 @@ function getWebviewHtml(webview, extensionUri) {
       <button id="table-tool" class="tool-button" data-tool="table">Tabla</button>
       <button id="delete-tool" class="tool-button danger-button" disabled>Eliminar</button>
       <span id="tool-hint" class="tool-hint">Haz clic en un párrafo, selecciona texto o usa + para insertar.</span>
+      <span class="version-badge" title="Versión instalada">v0.0.7</span>
     </nav>
 
     <section id="selection-context" class="selection-context hidden" aria-label="Propiedades de la selección">
       <div id="text-context" class="context-row hidden">
         <button id="edit-content" class="primary-button">Editar contenido</button>
-        <button id="resize-text-block">Mover / redimensionar</button>
+        <button id="resize-text-block">Mover / redimensionar bloque</button>
         <button id="copy-text">Copiar</button>
         <label>Fuente
           <select id="text-font-family">

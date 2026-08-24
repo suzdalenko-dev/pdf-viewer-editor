@@ -2,7 +2,7 @@
   "name": "pdf-viewer-editor",
   "displayName": "PDF Viewer & Editor",
   "description": "A focused visual PDF editor with direct text selection, real reflow, image editing, and editable tables in Visual Studio Code.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "suzdalenko-dev",
   "license": "AGPL-3.0-or-later",
   "repository": {

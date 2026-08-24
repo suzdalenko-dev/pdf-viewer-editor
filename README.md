@@ -11,7 +11,7 @@ La versión `0.0.6` se concentra en una tarea: **seleccionar y editar directamen
 - Hacer clic sobre una línea selecciona solo esa línea; arrastrar selecciona exactamente palabras o frases, sin rectángulos gigantes.
 - La selección visual usa los rectángulos de caracteres extraídos del PDF para ajustarse al contenido real.
 - Arrastrar sobre una palabra o frase y editar, borrar, copiar o cambiar su formato.
-- Editar un párrafo completo con `Editar contenido`.
+- Editar un párrafo completo con `Editar contenido`; el marco azul coincide con el área real y se puede redimensionar.
 - Mover o redimensionar un bloque de texto con `Mover / redimensionar`.
 - Al cambiar la anchura de un bloque, el texto se recompone dentro del nuevo ancho.
 - Añadir texto en cualquier punto de la página.
@@ -39,7 +39,7 @@ Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula l
 - Elegir el número de filas y columnas al crear la tabla.
 - Insertar la tabla entre párrafos sin cubrir el contenido existente.
 - Dibujar su zona directamente sobre la página.
-- Seleccionar una tabla creada, moverla y redimensionarla.
+- Seleccionar una tabla creada, moverla y redimensionarla con un marco que coincide exactamente con la cuadrícula.
 - El marco de edición de la tabla comparte el mismo sistema de coordenadas que el PDF renderizado.
 - Cambiar posteriormente filas, columnas, color y grosor de línea.
 - Eliminar la tabla completa con `Eliminar` o la tecla `Delete`.

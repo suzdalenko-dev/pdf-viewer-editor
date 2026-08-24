@@ -201,9 +201,19 @@ export class PdfEngine {
     return annotations.map((annotation, index) => {
       try {
         const type = annotation.getType();
-        const rect = annotation.hasRect()
-          ? annotation.getRect()
-          : annotation.getBounds();
+        const contents = safeCall(() => annotation.getContents(), '');
+        const subject = safeCall(() => annotation.getSubject(), '');
+        const table = parseTableMetadata(type, subject, contents);
+        let rect = table?.rect ? [...table.rect] : null;
+        if (!rect && table) {
+          rect = safeCall(() => [...annotation.getBounds()], null);
+        }
+        if (!rect) {
+          rect = annotation.hasRect()
+            ? [...annotation.getRect()]
+            : [...annotation.getBounds()];
+        }
+
         let defaultAppearance = null;
         if (type === 'FreeText') {
           try {
@@ -212,16 +222,14 @@ export class PdfEngine {
             defaultAppearance = null;
           }
         }
-        const contents = safeCall(() => annotation.getContents(), '');
-        const subject = safeCall(() => annotation.getSubject(), '');
         return {
           index,
           type,
-          rect: [...rect],
+          rect,
           contents,
           author: safeCall(() => annotation.getAuthor(), ''),
           subject,
-          table: parseTableMetadata(type, subject, contents),
+          table,
           color: safeCall(() => [...annotation.getColor()], []),
           interiorColor: annotation.hasInteriorColor()
             ? safeCall(() => [...annotation.getInteriorColor()], [])
@@ -332,9 +340,20 @@ export class PdfEngine {
     }
 
     const values = normalizeBlockProperties(block, properties);
-    const layout = layoutTextBlock(block.rect, values, block.metrics, block);
-    const oldHeight = Math.max(0, block.rect[3] - block.rect[1]);
-    const delta = layout.height - oldHeight;
+    const requested = values.text && Array.isArray(properties.targetRect)
+      ? normalizeRect(properties.targetRect)
+      : [...block.rect];
+    const minimumWidth = Math.max(24, Number(values.fontSize || block.font?.size || 12) * 2);
+    const targetRect = [
+      requested[0],
+      requested[1],
+      Math.max(requested[0] + minimumWidth, requested[2]),
+      requested[3]
+    ];
+    const layoutRect = [targetRect[0], targetRect[1], targetRect[2], targetRect[1]];
+    const layout = layoutTextBlock(layoutRect, values, block.metrics, block);
+    const newBottom = values.text ? targetRect[1] + layout.height : block.rect[1];
+    const delta = newBottom - block.rect[3];
     const followingBlocks = findFollowingBlocks(model.textBlocks, block.rect, block.index);
     const shiftedEntries = followingBlocks.flatMap((followingBlock) =>
       textEntriesForExistingBlock(followingBlock, delta)
@@ -354,7 +373,7 @@ export class PdfEngine {
           ? [...layout.entries, ...shiftedEntries]
           : shiftedEntries;
         const maximumBottom = Math.max(
-          values.text ? block.rect[1] + layout.height : block.rect[1],
+          values.text ? newBottom : block.rect[1],
           ...followingBlocks.map((candidate) => candidate.rect[3] + delta)
         );
         this.extendPageToFit(page, maximumBottom);
@@ -365,7 +384,9 @@ export class PdfEngine {
     return {
       delta,
       shiftedBlocks: followingBlocks.length,
-      rect: [block.rect[0], block.rect[1], block.rect[2], block.rect[1] + layout.height]
+      rect: values.text
+        ? [targetRect[0], targetRect[1], targetRect[2], newBottom]
+        : [block.rect[0], block.rect[1], block.rect[2], block.rect[1]]
     };
   }
 
@@ -721,7 +742,8 @@ export class PdfEngine {
         rows: rowCount,
         columns: columnCount,
         color,
-        borderWidth
+        borderWidth,
+        rect: normalizedRect
       }));
       annotation.update();
       page.update();
@@ -2324,7 +2346,10 @@ function parseTableMetadata(type, subject, contents) {
       rows: Math.max(1, Math.min(30, Math.round(Number(value.rows) || 2))),
       columns: Math.max(1, Math.min(20, Math.round(Number(value.columns) || 2))),
       color: normalizeColor(value.color, [0, 0, 0]),
-      borderWidth: Math.max(0.25, Math.min(8, Number(value.borderWidth || 1)))
+      borderWidth: Math.max(0.25, Math.min(8, Number(value.borderWidth || 1))),
+      rect: Array.isArray(value.rect) && value.rect.length === 4
+        ? normalizeRect(value.rect.map(Number))
+        : null
     };
   } catch {
     return null;
