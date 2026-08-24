@@ -21,7 +21,7 @@ jobs:
       - name: Materialize v0.0.5
         run: node scripts/apply-v005-fixes.js
 
-      - name: Harden selection save zoom and icon
+      - name: Final UI and Marketplace adjustments
         shell: python
         run: |
           from pathlib import Path
@@ -38,7 +38,7 @@ jobs:
               main,
               "  hideInsertMenu();\n  const line = event.currentTarget;",
               "  hideInsertMenu();\n  if (event.detail >= 2) {\n    window.requestAnimationFrame(updateTextRangeFromSelection);\n    return;\n  }\n  const line = event.currentTarget;",
-              'double-click native selection'
+              'double click word selection'
           )
           main_path.write_text(main)
 
@@ -48,43 +48,18 @@ jobs:
           html = replace_once(html, '<option value="1.25" selected>125%</option>', '<option value="1.25">125%</option>', '125 percent option')
           html_path.write_text(html)
 
-          provider_path = Path('src/pdf-editor-provider.js')
-          provider = provider_path.read_text()
-          old_save = '''    if (command === 'save') {
-            await vscode.workspace.fs.writeFile(document.uri, document.data);
-            await vscode.commands.executeCommand('workbench.action.files.save');
-            await panel.webview.postMessage({ type: 'document-saved' });
-            return;
-          }
-          '''
-          new_save = '''    if (command === 'save') {
-            let savedUri;
-            if (typeof vscode.workspace.save === 'function') {
-              savedUri = await vscode.workspace.save(document.uri);
-            }
-            if (!savedUri) {
-              await vscode.workspace.fs.writeFile(document.uri, document.data);
-              panel.reveal(panel.viewColumn, true);
-              await vscode.commands.executeCommand('workbench.action.files.save');
-            }
-            await panel.webview.postMessage({ type: 'document-saved' });
-            return;
-          }
-          '''
-          provider = replace_once(provider, old_save, new_save, 'targeted save implementation')
-          provider_path.write_text(provider)
-
-          # Fresh 256x256 icon to avoid stale local-extension cache.
           width = height = 256
           bg = (229, 57, 53, 255)
           white = (255, 255, 255, 255)
           dark = (32, 33, 36, 255)
           pixels = [[bg for _ in range(width)] for _ in range(height)]
+
           def rect(x1, y1, x2, y2, color):
               for y in range(y1, y2):
                   for x in range(x1, x2):
                       if 0 <= x < width and 0 <= y < height:
                           pixels[y][x] = color
+
           rect(52, 30, 184, 226, white)
           rect(184, 78, 205, 226, white)
           for y in range(30, 79):
@@ -98,13 +73,16 @@ jobs:
                   y = 202 - i + t
                   if 0 <= x < width and 0 <= y < height:
                       pixels[y][x] = dark
+
           raw = bytearray()
           for row in pixels:
               raw.append(0)
               for rgba in row:
                   raw.extend(rgba)
+
           def chunk(kind, data):
               return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+
           png = bytearray(b'\x89PNG\r\n\x1a\n')
           png += chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0))
           png += chunk(b'IDAT', zlib.compress(bytes(raw), 9))
@@ -115,7 +93,7 @@ jobs:
           changelog = changelog_path.read_text()
           if '## 0.0.5 - 2026-08-24' not in changelog:
               marker = 'Todos los cambios relevantes de este proyecto se documentan aquí.\n'
-              section = '''\n## 0.0.5 - 2026-08-24\n\n### Corregido\n\n- Selección nativa exacta de líneas, palabras y frases sin rectángulo azul de párrafo.\n- Zoom inicial al 100%.\n- Botón Guardar dirigido al PDF abierto con confirmación visual.\n- Icono 256×256 renovado y validado en el manifiesto VSIX para Marketplace.\n\n'''
+              section = '''\n## 0.0.5 - 2026-08-24\n\n### Corregido\n\n- Selección nativa exacta de líneas, palabras y frases sin rectángulo azul de párrafo.\n- Zoom inicial al 100%.\n- Botón Guardar escribe el PDF abierto y muestra confirmación visual.\n- Icono 256×256 renovado y validado como asset del VSIX/Marketplace.\n\n'''
               changelog = replace_once(changelog, marker, marker + section, 'changelog marker')
           changelog_path.write_text(changelog)
 
@@ -136,8 +114,10 @@ jobs:
           grep -q "event.detail >= 2" media/webview/main.js
           grep -q "range.selectNodeContents(line)" media/webview/main.js
           ! grep -q "classList.toggle('selected', Number(line.dataset.blockIndex)" media/webview/main.js
-          grep -q "vscode.workspace.save(document.uri)" src/pdf-editor-provider.js
+          grep -q "workspace.fs.writeFile(document.uri, document.data)" src/pdf-editor-provider.js
+          grep -q "type: 'document-saved'" src/pdf-editor-provider.js
           grep -q '<option value="1" selected>100%</option>' src/webview-html.js
+          node -e "const p=require('./package.json'); if(p.version!=='0.0.5'||p.icon!=='images/icon.png'||p.contributes.configuration.properties['pdfViewerEditor.defaultZoom'].default!==1) process.exit(1)"
           python - <<'PY'
           import struct, zipfile
           with zipfile.ZipFile('pdf-viewer-editor-0.0.5.vsix') as z:
@@ -148,7 +128,7 @@ jobs:
               icon = z.read('extension/images/icon.png')
               assert icon[:8] == b'\x89PNG\r\n\x1a\n'
               assert struct.unpack('>II', icon[16:24]) == (256, 256)
-              print('v0.0.5 VSIX verified, including Marketplace icon')
+              print('v0.0.5 VSIX verified with Marketplace icon')
           PY
           rm -f pdf-viewer-editor-0.0.5.vsix
 
