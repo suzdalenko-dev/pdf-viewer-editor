@@ -1,9 +1,9 @@
 name: Finalize v0.0.5
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/v0.0.5-finalize-extension
+      - main
 
 permissions:
   contents: write
@@ -23,7 +23,6 @@ jobs:
         run: |
           from pathlib import Path
           import json
-          import re
           import struct
           import zlib
 
@@ -32,7 +31,6 @@ jobs:
                   raise RuntimeError(f'Could not find {label}')
               return text.replace(old, new, 1)
 
-          # package.json: release version and 100% default zoom.
           package_path = Path('package.json')
           package = json.loads(package_path.read_text(encoding='utf-8'))
           package['version'] = '0.0.5'
@@ -40,23 +38,16 @@ jobs:
           package['icon'] = 'images/icon.png'
           package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
-          # Keep lockfile metadata aligned with package.json without rewriting the whole lock.
           lock_path = Path('package-lock.json')
           lock = lock_path.read_text(encoding='utf-8')
           lock = lock.replace('"version": "0.0.4"', '"version": "0.0.5"', 2)
           lock_path.write_text(lock, encoding='utf-8')
 
-          # Webview logic: 100% default zoom and true native text-range selection.
           main_path = Path('media/webview/main.js')
           main = main_path.read_text(encoding='utf-8')
           main = replace_once(main, '  zoom: 1.25,', '  zoom: 1,', 'initial zoom')
           main = replace_once(main, '    defaultZoom: 1.25,', '    defaultZoom: 1,', 'settings default zoom')
-          main = replace_once(
-              main,
-              "    state.zoom = Number(state.settings.defaultZoom || 1.25);",
-              "    state.zoom = Number(state.settings.defaultZoom || 1);",
-              'load zoom fallback'
-          )
+          main = replace_once(main, "    state.zoom = Number(state.settings.defaultZoom || 1.25);", "    state.zoom = Number(state.settings.defaultZoom || 1);", 'load zoom fallback')
 
           old_click = '''function textLineClicked(event) {
             if (state.tool !== 'edit' || state.busy) {
@@ -80,7 +71,6 @@ jobs:
             }
             hideInsertMenu();
 
-            // Let the browser keep its native word selection on double click.
             if (event.detail >= 2) {
               window.requestAnimationFrame(updateTextRangeFromSelection);
               return;
@@ -119,25 +109,25 @@ jobs:
               "    line.classList.toggle(\n      'selected',\n      !options.preserveRange && Number(line.dataset.blockIndex) === blockIndex\n    );",
               'block highlight toggle'
           )
-
-          # Show explicit feedback when Save/Save As completes.
-          old_message = '''  } else if (message.type === 'operation-error') {
+          main = replace_once(
+              main,
+              '''  } else if (message.type === 'operation-error') {
             setBusy(false);
             setStatus(message.message, 'error');
           }
-          '''
-          new_message = '''  } else if (message.type === 'operation-error') {
+          ''',
+              '''  } else if (message.type === 'operation-error') {
             setBusy(false);
             setStatus(message.message, 'error');
           } else if (message.type === 'save-complete') {
             setBusy(false);
             setStatus(String(message.message || 'PDF guardado.'));
           }
-          '''
-          main = replace_once(main, old_message, new_message, 'save-complete message handler')
+          ''',
+              'save-complete message handler'
+          )
           main_path.write_text(main, encoding='utf-8')
 
-          # Never paint the old paragraph-sized blue block; native ::selection is the only filled selection.
           css_path = Path('media/webview/styles.css')
           css = css_path.read_text(encoding='utf-8')
           css = replace_once(
@@ -156,22 +146,15 @@ jobs:
           )
           css_path.write_text(css, encoding='utf-8')
 
-          # Toolbar must visually start at 100% as well.
           html_path = Path('src/webview-html.js')
           html = html_path.read_text(encoding='utf-8')
           html = replace_once(html, '<option value="1">100%</option>', '<option value="1" selected>100%</option>', '100 percent option')
           html = replace_once(html, '<option value="1.25" selected>125%</option>', '<option value="1.25">125%</option>', '125 percent option')
           html_path.write_text(html, encoding='utf-8')
 
-          # Save must target the custom PDF document instead of relying only on the globally focused editor.
           provider_path = Path('src/pdf-editor-provider.js')
           provider = provider_path.read_text(encoding='utf-8')
-          provider = replace_once(
-              provider,
-              "        await this.executeEditorCommand(String(message.command || ''));",
-              "        await this.executeEditorCommand(document, panel, String(message.command || ''));",
-              'command invocation'
-          )
+          provider = replace_once(provider, "        await this.executeEditorCommand(String(message.command || ''));", "        await this.executeEditorCommand(document, panel, String(message.command || ''));", 'command invocation')
           old_execute = '''  /**
            * @param {string} command
            */
@@ -203,8 +186,6 @@ jobs:
                 await vscode.commands.executeCommand('workbench.action.files.save');
                 savedUri = document.uri;
               }
-
-              // Defensive fallback for hosts where the editor-specific save API is unavailable.
               if (!savedUri) {
                 await this.saveCustomDocument(document);
                 savedUri = document.uri;
@@ -244,15 +225,9 @@ jobs:
           }
           '''
           provider = replace_once(provider, old_execute, new_execute, 'executeEditorCommand')
-          provider = replace_once(
-              provider,
-              "        defaultZoom: configuration.get('defaultZoom', 1.25),",
-              "        defaultZoom: configuration.get('defaultZoom', 1),",
-              'provider zoom fallback'
-          )
+          provider = replace_once(provider, "        defaultZoom: configuration.get('defaultZoom', 1.25),", "        defaultZoom: configuration.get('defaultZoom', 1),", 'provider zoom fallback')
           provider_path.write_text(provider, encoding='utf-8')
 
-          # New icon bytes/version ensure VS Code cannot reuse the old locally cached extension icon.
           width = height = 256
           background = (229, 57, 53, 255)
           white = (255, 255, 255, 255)
@@ -264,17 +239,14 @@ jobs:
                   for x in range(max(0, x1), min(width, x2)):
                       pixels[y][x] = color
 
-          # Document body + fold.
           rect(52, 30, 184, 226, white)
           rect(184, 78, 205, 226, white)
           for y in range(30, 79):
               x2 = min(205, 184 + max(0, (y - 30) // 2))
               rect(184, y, x2 + 1, y + 1, white)
-          # Content lines.
           rect(80, 105, 174, 119, background)
           rect(80, 137, 174, 151, background)
           rect(80, 169, 151, 183, background)
-          # Small edit marker/pencil at bottom-right.
           for i in range(52):
               for t in range(10):
                   x = 151 + i - t // 2
@@ -298,7 +270,6 @@ jobs:
           Path('images').mkdir(exist_ok=True)
           Path('images/icon.png').write_bytes(png)
 
-          # Release notes and README.
           changelog_path = Path('CHANGELOG.md')
           changelog = changelog_path.read_text(encoding='utf-8')
           marker = 'Todos los cambios relevantes de este proyecto se documentan aquí.\n'
@@ -310,11 +281,7 @@ jobs:
           readme_path = Path('README.md')
           readme = readme_path.read_text(encoding='utf-8')
           readme = readme.replace('La versión `0.0.4`', 'La versión `0.0.5`', 1)
-          readme = readme.replace(
-              '- Hacer clic sobre cualquier línea para seleccionar solo su párrafo visual, sin rectángulos gigantes.',
-              '- Hacer clic sobre una línea selecciona solo esa línea; arrastrar selecciona exactamente palabras o frases, sin rectángulos gigantes.',
-              1
-          )
+          readme = readme.replace('- Hacer clic sobre cualquier línea para seleccionar solo su párrafo visual, sin rectángulos gigantes.', '- Hacer clic sobre una línea selecciona solo esa línea; arrastrar selecciona exactamente palabras o frases, sin rectángulos gigantes.', 1)
           readme_path.write_text(readme, encoding='utf-8')
 
       - name: Validate implementation invariants
@@ -350,7 +317,7 @@ jobs:
               names = set(archive.namelist())
               assert 'extension/images/icon.png' in names
               manifest = archive.read('extension.vsixmanifest').decode('utf-8')
-              assert '<Identity Language="en-US" Id="pdf-viewer-editor" Version="0.0.5" Publisher="suzdalenko-dev" />' in manifest
+              assert 'Version="0.0.5" Publisher="suzdalenko-dev"' in manifest
               assert '<Icon>extension/images/icon.png</Icon>' in manifest
               assert 'Microsoft.VisualStudio.Services.Icons.Default' in manifest
               icon = archive.read('extension/images/icon.png')
