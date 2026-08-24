@@ -2,7 +2,7 @@
 
 Editor visual de PDF gratuito para Visual Studio Code, construido en JavaScript con MuPDF.js y Fabric.js.
 
-La versión `0.0.6` se concentra en una tarea: **seleccionar y editar directamente el contenido visible de forma natural, con geometría alineada al PDF**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
+La versión `0.0.7` se concentra en una tarea: **hacer que el marco azul sea el área real del objeto editable, con geometría alineada al PDF**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
 
 > Conserva una copia del documento original cuando trabajes con archivos importantes. Un PDF describe objetos colocados en coordenadas y no siempre contiene párrafos equivalentes a los de Word; esta extensión reconstruye bloques editables a partir de la estructura visual detectada por MuPDF.
 
@@ -12,8 +12,9 @@ La versión `0.0.6` se concentra en una tarea: **seleccionar y editar directamen
 - La selección visual usa los rectángulos de caracteres extraídos del PDF para ajustarse al contenido real.
 - Arrastrar sobre una palabra o frase y editar, borrar, copiar o cambiar su formato.
 - Editar un párrafo completo con `Editar contenido`; el marco azul coincide con el área real y se puede redimensionar.
-- Mover o redimensionar un bloque de texto con `Mover / redimensionar`.
+- Mover o redimensionar un bloque de texto con `Mover / redimensionar bloque`.
 - Al cambiar la anchura de un bloque, el texto se recompone dentro del nuevo ancho.
+- El editor azul de texto permite redimensionar anchura y altura; al aplicar, esa geometría se convierte en la nueva zona real del texto.
 - Añadir texto en cualquier punto de la página.
 - Cambiar o borrar el contenido real de un bloque.
 - Cambiar Helvetica/Times/Courier, tamaño, color, negrita, cursiva y alineación.
@@ -40,6 +41,7 @@ Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula l
 - Insertar la tabla entre párrafos sin cubrir el contenido existente.
 - Dibujar su zona directamente sobre la página.
 - Seleccionar una tabla creada, moverla y redimensionarla con un marco que coincide exactamente con la cuadrícula.
+- La geometría exacta de cada tabla se conserva en sus metadatos, evitando que el marco de selección se desplace respecto a la cuadrícula.
 - El marco de edición de la tabla comparte el mismo sistema de coordenadas que el PDF renderizado.
 - Cambiar posteriormente filas, columnas, color y grosor de línea.
 - Eliminar la tabla completa con `Eliminar` o la tecla `Delete`.
@@ -57,18 +59,20 @@ Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula l
 - Guardado incremental o limpio, según la configuración.
 - Guardar, Guardar como, Deshacer, Rehacer y recuperación nativos de VS Code.
 - Todo el procesamiento ocurre localmente; el documento no se envía a ningún servidor.
+- La barra de edición muestra `v0.0.7` para poder comprobar visualmente que está instalada la versión correcta del VSIX.
 
 ## Uso rápido
 
 1. Abre un archivo `.pdf` en VS Code.
 2. Si se abre otro visor, usa el menú contextual y elige **Open with PDF Viewer & Editor**.
 3. Haz clic en una línea para seleccionar esa línea, o arrastra sobre cualquier palabra o frase.
-4. Pulsa `Editar selección` o `Editar contenido`; al aplicar, el texto inferior se recoloca.
-5. Usa `Mover / redimensionar` para cambiar la posición o anchura del bloque de texto.
-6. Cambia el tamaño de fuente: la selección se recompone y el contenido inferior se desplaza.
-7. Usa el punto `+` entre párrafos para insertar texto, imagen o tabla sin solapar nada.
-8. También puedes usar `Añadir texto`, `Imagen` o `Tabla` para colocar contenido libremente.
-9. Guarda con `Ctrl/Cmd+S`.
+4. Pulsa `Editar selección` o `Editar contenido`; el editor azul se abre sobre la zona real correspondiente.
+5. Redimensiona el marco azul si quieres modificar la anchura o altura disponible para el texto.
+6. Usa `Mover / redimensionar bloque` para cambiar la posición o anchura del bloque de texto completo.
+7. Cambia el tamaño de fuente: la selección se recompone y el contenido inferior se desplaza.
+8. Usa el punto `+` entre párrafos para insertar texto, imagen o tabla sin solapar nada.
+9. También puedes usar `Añadir texto`, `Imagen` o `Tabla` para colocar contenido libremente.
+10. Guarda con `Ctrl/Cmd+S`.
 
 | Acción | Atajo |
 |---|---|
@@ -109,7 +113,7 @@ npm run package
 | `npm run typecheck` | Comprueba el host de la extensión con TypeScript `checkJs` |
 | `npm test` | Ejecuta pruebas unitarias y de integración contra MuPDF/WASM |
 | `npm run check` | Ejecuta lint, typecheck y pruebas |
-| `npm run package` | Genera `pdf-viewer-editor-0.0.6.vsix` |
+| `npm run package` | Genera `pdf-viewer-editor-0.0.7.vsix` |
 
 El script `prepare` copia MuPDF y Fabric a `media/vendor`; esa carpeta se genera y no se versiona.
 
