@@ -35,6 +35,26 @@ jobs:
             scripts/v007-part3.py \
             scripts/v007-part4.py \
             > /tmp/apply-v007.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/apply-v007.py')
+          text = path.read_text()
+          old = """lock_path = ROOT / 'package-lock.json'
+          lock_text = lock_path.read_text(encoding='utf-8')
+          lock_text = replace_once(lock_text, '\"version\": \"0.0.6\"', '\"version\": \"0.0.7\"', 'package-lock root version')
+          lock_text = replace_once(lock_text, '\"version\": \"0.0.6\"', '\"version\": \"0.0.7\"', 'package-lock package version')
+          lock_path.write_text(lock_text, encoding='utf-8')
+          """
+          new = """lock_path = ROOT / 'package-lock.json'
+          lock_data = json.loads(lock_path.read_text(encoding='utf-8'))
+          lock_data['version'] = '0.0.7'
+          lock_data['packages']['']['version'] = '0.0.7'
+          lock_path.write_text(json.dumps(lock_data, ensure_ascii=False, indent=2) + '\\n', encoding='utf-8')
+          """
+          if old not in text:
+              raise SystemExit('package-lock patch target missing')
+          path.write_text(text.replace(old, new, 1))
+          PY
           python -m py_compile /tmp/apply-v007.py
           python /tmp/apply-v007.py
 
