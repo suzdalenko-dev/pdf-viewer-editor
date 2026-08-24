@@ -17,11 +17,11 @@ const state = {
   fileName: 'document.pdf',
   currentPage: 0,
   pageCount: 0,
-  zoom: 1.25,
+  zoom: 1,
   zoomMode: 'numeric',
   tool: 'edit',
   settings: {
-    defaultZoom: 1.25,
+    defaultZoom: 1,
     maxRenderPixels: 24_000_000,
     defaultSaveMode: 'incremental'
   },
@@ -74,6 +74,9 @@ window.addEventListener('message', async (event) => {
   } else if (message.type === 'operation-error') {
     setBusy(false);
     setStatus(message.message, 'error');
+  } else if (message.type === 'document-saved') {
+    setBusy(false);
+    setStatus('PDF guardado correctamente.');
   }
 });
 
@@ -90,7 +93,7 @@ async function loadDocument(message) {
     state.revision = Number(message.revision || 0);
     state.fileName = String(message.fileName || 'document.pdf');
     state.settings = { ...state.settings, ...(message.settings || {}) };
-    state.zoom = Number(state.settings.defaultZoom || 1.25);
+    state.zoom = Number(state.settings.defaultZoom || 1);
     state.zoomMode = 'numeric';
     state.password = '';
     state.searchQuery = '';
@@ -264,14 +267,18 @@ function textLineClicked(event) {
     return;
   }
   hideInsertMenu();
-  const blockIndex = Number(event.currentTarget.dataset.blockIndex);
+  const line = event.currentTarget;
   window.requestAnimationFrame(() => {
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed && selectionInsideTextLayer(selection)) {
       updateTextRangeFromSelection();
-    } else {
-      selectTextBlock(blockIndex);
+      return;
     }
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    updateTextRangeFromSelection();
   });
 }
 
@@ -295,9 +302,7 @@ function selectTextBlock(blockIndex, options = {}) {
     state.fabricCanvas.discardActiveObject();
     state.fabricCanvas.requestRenderAll();
   }
-  for (const line of elements['text-layer'].querySelectorAll('.text-layer-line')) {
-    line.classList.toggle('selected', Number(line.dataset.blockIndex) === blockIndex);
-  }
+  clearTextLineHighlights();
   selectMeta(meta);
   return true;
 }
@@ -1552,7 +1557,13 @@ function initializeEventHandlers() {
   });
   elements['undo-button'].addEventListener('click', () => postCommand('undo'));
   elements['redo-button'].addEventListener('click', () => postCommand('redo'));
-  elements['save-button'].addEventListener('click', () => postCommand('save'));
+  elements['save-button'].addEventListener('click', () => {
+    if (state.busy) {
+      return;
+    }
+    setBusy(true, 'Guardando PDF…');
+    postCommand('save');
+  });
 
   elements['edit-text-tool'].addEventListener('click', () => {
     hideInsertMenu();

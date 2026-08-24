@@ -110,7 +110,7 @@ class PdfEditorProvider {
       }
 
       case 'command':
-        await this.executeEditorCommand(String(message.command || ''));
+        await this.executeEditorCommand(document, panel, String(message.command || ''));
         return;
 
       case 'export':
@@ -150,11 +150,19 @@ class PdfEditorProvider {
   }
 
   /**
+   * @param {PdfDocument} document
+   * @param {vscode.WebviewPanel} panel
    * @param {string} command
    */
-  async executeEditorCommand(command) {
+  async executeEditorCommand(document, panel, command) {
+    if (command === 'save') {
+      await vscode.workspace.fs.writeFile(document.uri, document.data);
+      await vscode.commands.executeCommand('workbench.action.files.save');
+      await panel.webview.postMessage({ type: 'document-saved' });
+      return;
+    }
+
     const allowedCommands = new Map([
-      ['save', 'workbench.action.files.save'],
       ['saveAs', 'workbench.action.files.saveAs'],
       ['undo', 'undo'],
       ['redo', 'redo']
@@ -222,7 +230,7 @@ class PdfEditorProvider {
       revision: document.revision,
       fileName: path.basename(document.uri.fsPath || document.uri.path),
       settings: {
-        defaultZoom: configuration.get('defaultZoom', 1.25),
+        defaultZoom: configuration.get('defaultZoom', 1),
         maxRenderPixels: configuration.get('maxRenderPixels', 24000000),
         defaultSaveMode: configuration.get('defaultSaveMode', 'incremental')
       }
