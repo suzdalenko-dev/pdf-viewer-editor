@@ -338,6 +338,14 @@ input[type="color"] {
   inset: 0;
 }
 
+.page-stage > .canvas-container,
+.page-stage > .canvas-container .lower-canvas,
+.page-stage > .canvas-container .upper-canvas {
+  left: 0 !important;
+  top: 0 !important;
+  margin: 0 !important;
+}
+
 #pdf-canvas {
   z-index: 1;
 }
@@ -350,6 +358,7 @@ input[type="color"] {
 
 .text-layer-line {
   position: absolute;
+  z-index: 1;
   overflow: hidden;
   color: transparent;
   border-radius: 2px;
@@ -357,7 +366,8 @@ input[type="color"] {
   white-space: pre;
   cursor: text;
   pointer-events: auto;
-  user-select: text;
+  user-select: none;
+  touch-action: none;
   transform-origin: 0 0;
   transition: background-color 80ms ease;
 }
@@ -366,19 +376,9 @@ input[type="color"] {
   background: color-mix(in srgb, var(--focus) 9%, transparent);
 }
 
-.text-layer-line.selected {
-  background: color-mix(in srgb, var(--focus) 12%, transparent);
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--focus) 75%, transparent);
-}
-
-.text-layer-line::selection {
-  color: transparent;
-  background: transparent;
-}
-
 .text-range-highlight {
   position: absolute;
-  z-index: -1;
+  z-index: 0;
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--focus) 82%, transparent);
   border-radius: 1px;
@@ -499,25 +499,36 @@ input[type="color"] {
 .block-editor {
   position: absolute;
   z-index: 8;
-  min-width: 180px;
-  padding: 5px;
-  border: 2px solid var(--focus);
-  border-radius: 4px;
-  background: var(--surface);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
 }
 
 .block-editor textarea {
   display: block;
+  box-sizing: border-box;
   width: 100%;
-  min-height: 64px;
-  resize: vertical;
-  padding: 7px;
-  border: 0;
+  height: 100%;
+  min-width: 24px;
+  min-height: 18px;
+  resize: both;
+  padding: 2px 3px;
+  overflow: auto;
+  border: 2px solid var(--focus);
+  border-radius: 2px;
+  outline: 0;
   color: #111;
-  background: #fff;
-  line-height: 1.25;
-  overflow: hidden;
+  background: rgba(255, 255, 255, 0.98);
+  line-height: 1.18;
+  white-space: pre-wrap;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.22);
+}
+
+.block-editor textarea:focus {
+  outline: 0;
+  border-color: var(--focus);
 }
 
 .block-editor-actions {
@@ -525,6 +536,8 @@ input[type="color"] {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+  width: max-content;
+  min-width: 100%;
   padding-top: 5px;
 }
 
@@ -643,4 +656,16 @@ input[type="color"] {
   .page-viewport {
     padding: 16px;
   }
+}
+
+
+.version-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
