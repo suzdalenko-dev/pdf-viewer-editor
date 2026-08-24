@@ -15,327 +15,150 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/v0.0.5-finalize-extension
+          ref: fix/v0.0.5-finalize-extension-v2
           fetch-depth: 0
 
-      - name: Apply v0.0.5 fixes
+      - name: Materialize v0.0.5
+        run: node scripts/apply-v005-fixes.js
+
+      - name: Harden selection save zoom and icon
         shell: python
         run: |
           from pathlib import Path
-          import json
-          import struct
-          import zlib
+          import struct, zlib
 
           def replace_once(text, old, new, label):
               if old not in text:
-                  raise RuntimeError(f'Could not find {label}')
+                  raise RuntimeError(f'Missing {label}')
               return text.replace(old, new, 1)
 
-          package_path = Path('package.json')
-          package = json.loads(package_path.read_text(encoding='utf-8'))
-          package['version'] = '0.0.5'
-          package['contributes']['configuration']['properties']['pdfViewerEditor.defaultZoom']['default'] = 1
-          package['icon'] = 'images/icon.png'
-          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-
-          lock_path = Path('package-lock.json')
-          lock = lock_path.read_text(encoding='utf-8')
-          lock = lock.replace('"version": "0.0.4"', '"version": "0.0.5"', 2)
-          lock_path.write_text(lock, encoding='utf-8')
-
           main_path = Path('media/webview/main.js')
-          main = main_path.read_text(encoding='utf-8')
-          main = replace_once(main, '  zoom: 1.25,', '  zoom: 1,', 'initial zoom')
-          main = replace_once(main, '    defaultZoom: 1.25,', '    defaultZoom: 1,', 'settings default zoom')
-          main = replace_once(main, "    state.zoom = Number(state.settings.defaultZoom || 1.25);", "    state.zoom = Number(state.settings.defaultZoom || 1);", 'load zoom fallback')
-
-          old_click = '''function textLineClicked(event) {
-            if (state.tool !== 'edit' || state.busy) {
-              return;
-            }
-            hideInsertMenu();
-            const blockIndex = Number(event.currentTarget.dataset.blockIndex);
-            window.requestAnimationFrame(() => {
-              const selection = window.getSelection();
-              if (selection && !selection.isCollapsed && selectionInsideTextLayer(selection)) {
-                updateTextRangeFromSelection();
-              } else {
-                selectTextBlock(blockIndex);
-              }
-            });
-          }
-          '''
-          new_click = '''function textLineClicked(event) {
-            if (state.tool !== 'edit' || state.busy) {
-              return;
-            }
-            hideInsertMenu();
-
-            if (event.detail >= 2) {
-              window.requestAnimationFrame(updateTextRangeFromSelection);
-              return;
-            }
-
-            window.requestAnimationFrame(() => {
-              const selection = window.getSelection();
-              if (selection && !selection.isCollapsed && selectionInsideTextLayer(selection)) {
-                updateTextRangeFromSelection();
-                return;
-              }
-              selectTextLine(event.currentTarget);
-            });
-          }
-
-          function selectTextLine(lineElement) {
-            if (!(lineElement instanceof window.HTMLElement)) {
-              return false;
-            }
-            const selection = window.getSelection();
-            if (!selection) {
-              return false;
-            }
-            const range = document.createRange();
-            range.selectNodeContents(lineElement);
-            selection.removeAllRanges();
-            selection.addRange(range);
-            updateTextRangeFromSelection();
-            return true;
-          }
-          '''
-          main = replace_once(main, old_click, new_click, 'textLineClicked implementation')
+          main = main_path.read_text()
           main = replace_once(
               main,
-              "    line.classList.toggle('selected', Number(line.dataset.blockIndex) === blockIndex);",
-              "    line.classList.toggle(\n      'selected',\n      !options.preserveRange && Number(line.dataset.blockIndex) === blockIndex\n    );",
-              'block highlight toggle'
+              "  hideInsertMenu();\n  const line = event.currentTarget;",
+              "  hideInsertMenu();\n  if (event.detail >= 2) {\n    window.requestAnimationFrame(updateTextRangeFromSelection);\n    return;\n  }\n  const line = event.currentTarget;",
+              'double-click native selection'
           )
-          main = replace_once(
-              main,
-              '''  } else if (message.type === 'operation-error') {
-            setBusy(false);
-            setStatus(message.message, 'error');
-          }
-          ''',
-              '''  } else if (message.type === 'operation-error') {
-            setBusy(false);
-            setStatus(message.message, 'error');
-          } else if (message.type === 'save-complete') {
-            setBusy(false);
-            setStatus(String(message.message || 'PDF guardado.'));
-          }
-          ''',
-              'save-complete message handler'
-          )
-          main_path.write_text(main, encoding='utf-8')
-
-          css_path = Path('media/webview/styles.css')
-          css = css_path.read_text(encoding='utf-8')
-          css = replace_once(
-              css,
-              '''.text-layer-line.selected {
-            background: color-mix(in srgb, var(--focus) 12%, transparent);
-            box-shadow: inset 2px 0 0 color-mix(in srgb, var(--focus) 75%, transparent);
-          }
-          ''',
-              '''.text-layer-line.selected {
-            background: transparent;
-            box-shadow: none;
-          }
-          ''',
-              'selected text line style'
-          )
-          css_path.write_text(css, encoding='utf-8')
+          main_path.write_text(main)
 
           html_path = Path('src/webview-html.js')
-          html = html_path.read_text(encoding='utf-8')
+          html = html_path.read_text()
           html = replace_once(html, '<option value="1">100%</option>', '<option value="1" selected>100%</option>', '100 percent option')
           html = replace_once(html, '<option value="1.25" selected>125%</option>', '<option value="1.25">125%</option>', '125 percent option')
-          html_path.write_text(html, encoding='utf-8')
+          html_path.write_text(html)
 
           provider_path = Path('src/pdf-editor-provider.js')
-          provider = provider_path.read_text(encoding='utf-8')
-          provider = replace_once(provider, "        await this.executeEditorCommand(String(message.command || ''));", "        await this.executeEditorCommand(document, panel, String(message.command || ''));", 'command invocation')
-          old_execute = '''  /**
-           * @param {string} command
-           */
-          async executeEditorCommand(command) {
-            const allowedCommands = new Map([
-              ['save', 'workbench.action.files.save'],
-              ['saveAs', 'workbench.action.files.saveAs'],
-              ['undo', 'undo'],
-              ['redo', 'redo']
-            ]);
-            const vscodeCommand = allowedCommands.get(command);
-            if (vscodeCommand) {
-              await vscode.commands.executeCommand(vscodeCommand);
-            }
+          provider = provider_path.read_text()
+          old_save = '''    if (command === 'save') {
+            await vscode.workspace.fs.writeFile(document.uri, document.data);
+            await vscode.commands.executeCommand('workbench.action.files.save');
+            await panel.webview.postMessage({ type: 'document-saved' });
+            return;
           }
           '''
-          new_execute = '''  /**
-           * @param {PdfDocument} document
-           * @param {vscode.WebviewPanel} panel
-           * @param {string} command
-           */
-          async executeEditorCommand(document, panel, command) {
-            if (command === 'save') {
-              let savedUri;
-              if (typeof vscode.workspace.save === 'function') {
-                savedUri = await vscode.workspace.save(document.uri);
-              } else {
-                panel.reveal(panel.viewColumn, true);
-                await vscode.commands.executeCommand('workbench.action.files.save');
-                savedUri = document.uri;
-              }
-              if (!savedUri) {
-                await this.saveCustomDocument(document);
-                savedUri = document.uri;
-              }
-              await panel.webview.postMessage({
-                type: 'save-complete',
-                message: `Guardado: ${path.basename(savedUri.fsPath || savedUri.path)}`
-              });
-              return;
+          new_save = '''    if (command === 'save') {
+            let savedUri;
+            if (typeof vscode.workspace.save === 'function') {
+              savedUri = await vscode.workspace.save(document.uri);
             }
-
-            if (command === 'saveAs') {
-              let savedUri;
-              if (typeof vscode.workspace.saveAs === 'function') {
-                savedUri = await vscode.workspace.saveAs(document.uri);
-              } else {
-                panel.reveal(panel.viewColumn, true);
-                await vscode.commands.executeCommand('workbench.action.files.saveAs');
-              }
-              await panel.webview.postMessage({
-                type: 'save-complete',
-                message: savedUri
-                  ? `Guardado como: ${path.basename(savedUri.fsPath || savedUri.path)}`
-                  : 'Guardar como cancelado.'
-              });
-              return;
+            if (!savedUri) {
+              await vscode.workspace.fs.writeFile(document.uri, document.data);
+              panel.reveal(panel.viewColumn, true);
+              await vscode.commands.executeCommand('workbench.action.files.save');
             }
-
-            const allowedCommands = new Map([
-              ['undo', 'undo'],
-              ['redo', 'redo']
-            ]);
-            const vscodeCommand = allowedCommands.get(command);
-            if (vscodeCommand) {
-              await vscode.commands.executeCommand(vscodeCommand);
-            }
+            await panel.webview.postMessage({ type: 'document-saved' });
+            return;
           }
           '''
-          provider = replace_once(provider, old_execute, new_execute, 'executeEditorCommand')
-          provider = replace_once(provider, "        defaultZoom: configuration.get('defaultZoom', 1.25),", "        defaultZoom: configuration.get('defaultZoom', 1),", 'provider zoom fallback')
-          provider_path.write_text(provider, encoding='utf-8')
+          provider = replace_once(provider, old_save, new_save, 'targeted save implementation')
+          provider_path.write_text(provider)
 
+          # Fresh 256x256 icon to avoid stale local-extension cache.
           width = height = 256
-          background = (229, 57, 53, 255)
+          bg = (229, 57, 53, 255)
           white = (255, 255, 255, 255)
-          accent = (33, 33, 33, 255)
-          pixels = [[background for _ in range(width)] for _ in range(height)]
-
+          dark = (32, 33, 36, 255)
+          pixels = [[bg for _ in range(width)] for _ in range(height)]
           def rect(x1, y1, x2, y2, color):
-              for y in range(max(0, y1), min(height, y2)):
-                  for x in range(max(0, x1), min(width, x2)):
-                      pixels[y][x] = color
-
+              for y in range(y1, y2):
+                  for x in range(x1, x2):
+                      if 0 <= x < width and 0 <= y < height:
+                          pixels[y][x] = color
           rect(52, 30, 184, 226, white)
           rect(184, 78, 205, 226, white)
           for y in range(30, 79):
-              x2 = min(205, 184 + max(0, (y - 30) // 2))
-              rect(184, y, x2 + 1, y + 1, white)
-          rect(80, 105, 174, 119, background)
-          rect(80, 137, 174, 151, background)
-          rect(80, 169, 151, 183, background)
+              rect(184, y, min(206, 185 + (y - 30) // 2), y + 1, white)
+          rect(80, 105, 174, 119, bg)
+          rect(80, 137, 174, 151, bg)
+          rect(80, 169, 151, 183, bg)
           for i in range(52):
               for t in range(10):
                   x = 151 + i - t // 2
                   y = 202 - i + t
                   if 0 <= x < width and 0 <= y < height:
-                      pixels[y][x] = accent
-
+                      pixels[y][x] = dark
           raw = bytearray()
           for row in pixels:
               raw.append(0)
               for rgba in row:
                   raw.extend(rgba)
-
           def chunk(kind, data):
               return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
-
           png = bytearray(b'\x89PNG\r\n\x1a\n')
           png += chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0))
           png += chunk(b'IDAT', zlib.compress(bytes(raw), 9))
           png += chunk(b'IEND', b'')
-          Path('images').mkdir(exist_ok=True)
           Path('images/icon.png').write_bytes(png)
 
           changelog_path = Path('CHANGELOG.md')
-          changelog = changelog_path.read_text(encoding='utf-8')
-          marker = 'Todos los cambios relevantes de este proyecto se documentan aquí.\n'
-          section = '''\n## 0.0.5 - 2026-08-24\n\n### Corregido\n\n- La selección de texto usa exclusivamente el rango nativo: arrastrar selecciona solo palabras/frases y ya no pinta el párrafo completo en azul.\n- Un clic selecciona únicamente la línea visible; doble clic conserva la selección nativa de palabra.\n- El zoom inicial pasa de 125% a 100% en configuración, webview y proveedor.\n- `Guardar` y `Guardar como` se dirigen al PDF abierto y muestran confirmación en el editor.\n- Icono de extensión renovado y validado dentro del manifiesto VSIX para VS Code Marketplace.\n\n### Pruebas\n\n- El empaquetado comprueba versión 0.0.5, PNG 256×256, asset de icono en `extension.vsixmanifest`, ausencia del resaltado azul de bloque y presencia del guardado dirigido por URI.\n'''
+          changelog = changelog_path.read_text()
           if '## 0.0.5 - 2026-08-24' not in changelog:
-              changelog = replace_once(changelog, marker, marker + section, 'changelog insertion point')
-          changelog_path.write_text(changelog, encoding='utf-8')
+              marker = 'Todos los cambios relevantes de este proyecto se documentan aquí.\n'
+              section = '''\n## 0.0.5 - 2026-08-24\n\n### Corregido\n\n- Selección nativa exacta de líneas, palabras y frases sin rectángulo azul de párrafo.\n- Zoom inicial al 100%.\n- Botón Guardar dirigido al PDF abierto con confirmación visual.\n- Icono 256×256 renovado y validado en el manifiesto VSIX para Marketplace.\n\n'''
+              changelog = replace_once(changelog, marker, marker + section, 'changelog marker')
+          changelog_path.write_text(changelog)
 
           readme_path = Path('README.md')
-          readme = readme_path.read_text(encoding='utf-8')
+          readme = readme_path.read_text()
           readme = readme.replace('La versión `0.0.4`', 'La versión `0.0.5`', 1)
           readme = readme.replace('- Hacer clic sobre cualquier línea para seleccionar solo su párrafo visual, sin rectángulos gigantes.', '- Hacer clic sobre una línea selecciona solo esa línea; arrastrar selecciona exactamente palabras o frases, sin rectángulos gigantes.', 1)
-          readme_path.write_text(readme, encoding='utf-8')
+          readme_path.write_text(readme)
 
-      - name: Validate implementation invariants
+      - name: Verify source and VSIX
         shell: bash
         run: |
           set -euo pipefail
-          node -e "const p=require('./package.json'); if(p.version!=='0.0.5') process.exit(1); if(p.contributes.configuration.properties['pdfViewerEditor.defaultZoom'].default!==1) process.exit(2); if(p.icon!=='images/icon.png') process.exit(3)"
-          grep -q "selectTextLine(event.currentTarget)" media/webview/main.js
-          grep -q "!options.preserveRange" media/webview/main.js
-          grep -q "background: transparent" media/webview/styles.css
-          grep -q "vscode.workspace.save(document.uri)" src/pdf-editor-provider.js
-          grep -q "defaultZoom: configuration.get('defaultZoom', 1)" src/pdf-editor-provider.js
-          grep -q '<option value="1" selected>100%</option>' src/webview-html.js
-
-      - name: Install and test
-        run: |
           npm ci
           npm run check
-
-      - name: Package and verify Marketplace assets
-        shell: bash
-        run: |
-          set -euo pipefail
           npm run package
           test -f pdf-viewer-editor-0.0.5.vsix
+          grep -q "event.detail >= 2" media/webview/main.js
+          grep -q "range.selectNodeContents(line)" media/webview/main.js
+          ! grep -q "classList.toggle('selected', Number(line.dataset.blockIndex)" media/webview/main.js
+          grep -q "vscode.workspace.save(document.uri)" src/pdf-editor-provider.js
+          grep -q '<option value="1" selected>100%</option>' src/webview-html.js
           python - <<'PY'
-          from pathlib import Path
-          import struct
-          import zipfile
-
-          vsix = Path('pdf-viewer-editor-0.0.5.vsix')
-          with zipfile.ZipFile(vsix) as archive:
-              names = set(archive.namelist())
-              assert 'extension/images/icon.png' in names
-              manifest = archive.read('extension.vsixmanifest').decode('utf-8')
+          import struct, zipfile
+          with zipfile.ZipFile('pdf-viewer-editor-0.0.5.vsix') as z:
+              manifest = z.read('extension.vsixmanifest').decode()
               assert 'Version="0.0.5" Publisher="suzdalenko-dev"' in manifest
               assert '<Icon>extension/images/icon.png</Icon>' in manifest
               assert 'Microsoft.VisualStudio.Services.Icons.Default' in manifest
-              icon = archive.read('extension/images/icon.png')
+              icon = z.read('extension/images/icon.png')
               assert icon[:8] == b'\x89PNG\r\n\x1a\n'
-              width, height = struct.unpack('>II', icon[16:24])
-              assert (width, height) == (256, 256)
-              print(f'VSIX OK: {vsix.name}; icon={width}x{height}; files={len(names)}')
+              assert struct.unpack('>II', icon[16:24]) == (256, 256)
+              print('v0.0.5 VSIX verified, including Marketplace icon')
           PY
           rm -f pdf-viewer-editor-0.0.5.vsix
 
-      - name: Commit final source and remove one-shot workflow
+      - name: Commit final branch
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/workflows/finalize-v005.yml
+          rm -f .github/workflows/finalize-v005.yml scripts/apply-v005-fixes.js
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git status --short
-          git commit -m 'fix: finalize v0.0.5 editor interactions and marketplace package'
-          git push origin HEAD:fix/v0.0.5-finalize-extension
+          git commit -m 'fix: complete v0.0.5 selection save zoom and marketplace icon'
+          git push origin HEAD:fix/v0.0.5-finalize-extension-v2
