@@ -1,0 +1,99 @@
+name: Finalize v0.0.7
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ github.head_ref == 'fix/v0.0.7-unified-edit-boxes' && github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v0.0.7 branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.0.7-unified-edit-boxes
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Materialize v0.0.7 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            scripts/v007-part1.py \
+            scripts/v007-part2.py \
+            scripts/v007-part3.py \
+            scripts/v007-part4.py \
+            > /tmp/apply-v007.py
+          python -m py_compile /tmp/apply-v007.py
+          python /tmp/apply-v007.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify source
+        run: npm run check
+
+      - name: Verify v0.0.7 contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const pkg = require('./package.json');
+          if (pkg.version !== '0.0.7') throw new Error('Expected version 0.0.7');
+          if (pkg.icon !== 'images/icon.png') throw new Error('Marketplace icon missing');
+          if (!fs.existsSync('images/icon.png')) throw new Error('images/icon.png missing');
+          const main = fs.readFileSync('media/webview/main.js', 'utf8');
+          const engine = fs.readFileSync('media/webview/pdf-engine.js', 'utf8');
+          const styles = fs.readFileSync('media/webview/styles.css', 'utf8');
+          const html = fs.readFileSync('src/webview-html.js', 'utf8');
+          for (const token of ['syncEditingRectFromEditor', 'targetRect: editing.rect', "originX: 'left'", 'syncFabricCanvasGeometry']) {
+            if (!main.includes(token)) throw new Error(`Missing main.js contract: ${token}`);
+          }
+          for (const token of ['annotation.setRect(normalizedRect)', 'rect: normalizedRect', 'table?.rect']) {
+            if (!engine.includes(token)) throw new Error(`Missing pdf-engine.js contract: ${token}`);
+          }
+          if (!styles.includes('resize: both')) throw new Error('Resizable blue text box missing');
+          if (!html.includes('v0.0.7')) throw new Error('Visible v0.0.7 badge missing');
+          NODE
+
+      - name: Package and inspect VSIX
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run package
+          test -f pdf-viewer-editor-0.0.7.vsix
+          unzip -l pdf-viewer-editor-0.0.7.vsix > /tmp/vsix.txt
+          grep -q 'extension/images/icon.png' /tmp/vsix.txt
+          grep -q 'extension/media/webview/main.js' /tmp/vsix.txt
+          grep -q 'extension/media/webview/pdf-engine.js' /tmp/vsix.txt
+          ! grep -q 'v007-part' /tmp/vsix.txt
+          ! grep -q 'apply-v006-fixes' /tmp/vsix.txt
+
+      - name: Commit final source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            scripts/v007-part1.py \
+            scripts/v007-part2.py \
+            scripts/v007-part3.py \
+            scripts/v007-part4.py \
+            .github/workflows/finalize-v007.yml \
+            pdf-viewer-editor-0.0.7.vsix
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: release v0.0.7 unified resizable edit boxes'
+          git push origin HEAD:fix/v0.0.7-unified-edit-boxes
