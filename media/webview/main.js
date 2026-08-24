@@ -54,7 +54,7 @@ const elements = Object.fromEntries([
   'zoom-out', 'zoom-select', 'zoom-in', 'search-input', 'search-button',
   'undo-button', 'redo-button', 'save-button', 'edit-text-tool', 'add-text-tool',
   'image-tool', 'table-tool', 'delete-tool', 'tool-hint', 'selection-context',
-  'text-context', 'edit-content', 'copy-text', 'text-font-family', 'text-font-size',
+  'text-context', 'edit-content', 'resize-text-block', 'copy-text', 'text-font-family', 'text-font-size',
   'text-bold', 'text-italic', 'text-color', 'text-alignment', 'table-context',
   'table-rows', 'table-columns', 'table-color', 'table-border-width', 'apply-table',
   'image-context', 'image-kind', 'image-help', 'pages-sidebar', 'thumbnail-list',
@@ -205,6 +205,7 @@ function initializeOrResizeFabricCanvas() {
       height: state.render.height,
       preserveObjectStacking: true,
       selection: false,
+      enableRetinaScaling: false,
       stopContextMenu: true
     });
     state.fabricCanvas.on('selection:created', selectionChanged);
@@ -294,6 +295,7 @@ function selectTextBlock(blockIndex, options = {}) {
   if (!options.preserveRange) {
     state.textRange = null;
     hideEditRangeButton();
+    clearTextRangeHighlights();
   }
   const meta = {
     kind: 'text',
@@ -341,6 +343,7 @@ function updateTextRangeFromSelection() {
     end: end.offset,
     text: block.text.slice(start.offset, end.offset)
   };
+  renderTextRangeHighlights();
   selectTextBlock(block.index, { preserveRange: true });
   showEditRangeButton(range);
   setStatus('Texto seleccionado: pulsa “Editar selección”, cambia su formato o elimínalo.');
@@ -397,6 +400,99 @@ function showEditRangeButton(range) {
 
 function hideEditRangeButton() {
   elements['edit-range-button'].classList.add('hidden');
+}
+
+function clearTextRangeHighlights() {
+  for (const highlight of elements['text-layer'].querySelectorAll('.text-range-highlight')) {
+    highlight.remove();
+  }
+}
+
+function renderTextRangeHighlights() {
+  clearTextRangeHighlights();
+  const selectedRange = state.textRange;
+  if (!selectedRange || !state.pageModel) {
+    return;
+  }
+
+  const lines = state.pageModel.textLines.filter((line) =>
+    line.blockIndex === selectedRange.blockIndex &&
+    selectedRange.end > line.textStart &&
+    selectedRange.start < line.textEnd
+  );
+
+  for (const line of lines) {
+    const localStart = clamp(selectedRange.start - line.textStart, 0, line.text.length);
+    const localEnd = clamp(selectedRange.end - line.textStart, 0, line.text.length);
+    if (localEnd <= localStart) {
+      continue;
+    }
+
+    let rect = null;
+    const characters = Array.isArray(line.characters) ? line.characters : [];
+    const selectedCharacters = characters.slice(localStart, localEnd)
+      .map((character) => character.rect)
+      .filter((candidate) => Array.isArray(candidate) && candidate.length === 4);
+
+    if (selectedCharacters.length > 0) {
+      rect = selectedCharacters.reduce((result, candidate) => result
+        ? [
+            Math.min(result[0], candidate[0]),
+            Math.min(result[1], candidate[1]),
+            Math.max(result[2], candidate[2]),
+            Math.max(result[3], candidate[3])
+          ]
+        : [...candidate], null);
+    } else {
+      const lineWidth = Math.max(1, line.rect[2] - line.rect[0]);
+      const startRatio = localStart / Math.max(1, line.text.length);
+      const endRatio = localEnd / Math.max(1, line.text.length);
+      rect = [
+        line.rect[0] + lineWidth * startRatio,
+        line.rect[1],
+        line.rect[0] + lineWidth * endRatio,
+        line.rect[3]
+      ];
+    }
+
+    const screen = pdfRectToScreen(rect);
+    const highlight = document.createElement('div');
+    highlight.className = 'text-range-highlight';
+    highlight.style.left = `${screen[0]}px`;
+    highlight.style.top = `${screen[1]}px`;
+    highlight.style.width = `${Math.max(1, screen[2] - screen[0])}px`;
+    highlight.style.height = `${Math.max(1, screen[3] - screen[1])}px`;
+    elements['text-layer'].appendChild(highlight);
+  }
+}
+
+function setTextResizeMode(active) {
+  const wrapper = state.fabricCanvas?.wrapperEl;
+  if (wrapper) {
+    wrapper.style.zIndex = active ? '6' : '3';
+  }
+  elements['text-layer'].classList.toggle('resize-mode', active);
+  elements['insertion-layer'].classList.toggle('resize-mode', active);
+}
+
+function activateTextResizeMode() {
+  const selected = state.selected;
+  if (selected?.kind !== 'text' || state.busy) {
+    return;
+  }
+
+  setTextResizeMode(true);
+  const resizeMeta = { ...selected, resizeMode: true };
+  const object = addOverlayObject(resizeMeta, {
+    stroke: '#1473e6',
+    fill: 'rgba(20, 115, 230, 0.025)',
+    movable: true,
+    resizable: true
+  });
+  state.fabricCanvas.setActiveObject(object);
+  object.set('stroke', object.editorStroke);
+  state.fabricCanvas.requestRenderAll();
+  setStatus('Arrastra el marco para mover el texto o sus esquinas para cambiar la anchura; al soltar se recompone el texto.');
 }
 
 function buildInsertionLayer() {
@@ -680,6 +776,8 @@ function clearSelection() {
   state.selected = null;
   state.textRange = null;
   hideEditRangeButton();
+  clearTextRangeHighlights();
+  setTextResizeMode(false);
   clearTextLineHighlights();
   elements['delete-tool'].disabled = true;
   elements['selection-context'].classList.add('hidden');
@@ -804,6 +902,12 @@ async function overlayObjectModified(event) {
       await commitAndRefresh('Mover o redimensionar imagen', {
         restoreKind: 'image-last'
       });
+    } else if (meta.kind === 'text' && meta.resizeMode) {
+      setTextResizeMode(false);
+      engine.resizeTextBlock(state.currentPage, meta.blockIndex, targetRect);
+      await commitAndRefresh('Mover o redimensionar texto', {
+        restoreText: meta.block.text
+      });
     } else if (meta.kind === 'table') {
       engine.updateTable(
         state.currentPage,
@@ -855,13 +959,12 @@ function screenPointToPdf(point) {
 }
 
 function objectScreenRectToPdf(object) {
-  const width = Math.max(2, object.width * object.scaleX);
-  const height = Math.max(2, object.height * object.scaleY);
+  const bounds = object.getBoundingRect();
   return screenRectToPdf([
-    object.left,
-    object.top,
-    object.left + width,
-    object.top + height
+    bounds.left,
+    bounds.top,
+    bounds.left + Math.max(2, bounds.width),
+    bounds.top + Math.max(2, bounds.height)
   ]);
 }
 
@@ -1597,6 +1700,7 @@ function initializeEventHandlers() {
       openExistingTextEditor(state.selected.block);
     }
   });
+  elements['resize-text-block'].addEventListener('click', activateTextResizeMode);
   elements['copy-text'].addEventListener('click', copySelectedText);
   elements['text-font-family'].addEventListener('change', textFormatChanged);
   elements['text-font-size'].addEventListener('change', textFormatChanged);

@@ -81,6 +81,7 @@ function getWebviewHtml(webview, extensionUri) {
     <section id="selection-context" class="selection-context hidden" aria-label="Propiedades de la selección">
       <div id="text-context" class="context-row hidden">
         <button id="edit-content" class="primary-button">Editar contenido</button>
+        <button id="resize-text-block">Mover / redimensionar</button>
         <button id="copy-text">Copiar</button>
         <label>Fuente
           <select id="text-font-family">

@@ -2,6 +2,17 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí.
 
+## 0.0.6 - 2026-08-24
+
+### Corregido
+
+- Selección visual calculada con rectángulos reales de caracteres extraídos del PDF.
+- Capa Fabric y página usando el mismo sistema de coordenadas para evitar desplazamientos.
+- Marcos de tablas alineados con el objeto PDF real.
+- Bloques de texto movibles y redimensionables con reflow al cambiar su anchura.
+- Icono de Marketplace conservado y VSIX actualizado a 0.0.6.
+
+
 ## 0.0.5 - 2026-08-24
 
 ### Corregido

@@ -373,7 +373,24 @@ input[type="color"] {
 
 .text-layer-line::selection {
   color: transparent;
-  background: color-mix(in srgb, var(--focus) 38%, transparent);
+  background: transparent;
+}
+
+.text-range-highlight {
+  position: absolute;
+  z-index: -1;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--focus) 82%, transparent);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--focus) 28%, transparent);
+  pointer-events: none;
+}
+
+.text-layer.resize-mode,
+.text-layer.resize-mode .text-layer-line,
+.insertion-layer.resize-mode {
+  pointer-events: none;
+  user-select: none;
 }
 
 .text-layer.placement-mode .text-layer-line {

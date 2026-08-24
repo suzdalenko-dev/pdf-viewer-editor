@@ -27,5 +27,20 @@ test('save writes the custom document and sends visible acknowledgement', () => 
 test('marketplace icon metadata is present', () => {
   assert.equal(pkg.icon, 'images/icon.png');
   assert.equal(fs.existsSync(new URL('../images/icon.png', import.meta.url)), true);
-  assert.equal(pkg.version, '0.0.5');
+  assert.equal(pkg.version, '0.0.6');
+});
+
+
+test('v0.0.6 keeps overlays in one coordinate system and supports text resizing', () => {
+  assert.match(main, /enableRetinaScaling: false/);
+  assert.match(main, /object\.getBoundingRect\(\)/);
+  assert.match(main, /resize-text-block/);
+  assert.match(main, /engine\.resizeTextBlock/);
+});
+
+test('v0.0.6 renders text selection from extracted PDF character rectangles', () => {
+  const engine = fs.readFileSync(new URL('../media/webview/pdf-engine.js', import.meta.url), 'utf8');
+  assert.match(engine, /characters: currentLine\.characters/);
+  assert.match(main, /text-range-highlight/);
+  assert.match(main, /selectedCharacters/);
 });

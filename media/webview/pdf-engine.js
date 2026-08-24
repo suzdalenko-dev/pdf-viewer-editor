@@ -571,6 +571,50 @@ export class PdfEngine {
     };
   }
 
+  resizeTextBlock(pageIndex, blockIndex, targetRect) {
+    const model = this.getPageModel(pageIndex);
+    const block = model.textBlocks.find((candidate) => candidate.index === blockIndex);
+    if (!block) {
+      throw new Error('The selected text block no longer exists. Select it again.');
+    }
+
+    const target = normalizeRect(targetRect);
+    const minimumWidth = Math.max(36, Number(block.font?.size || 12) * 3);
+    const width = Math.max(minimumWidth, target[2] - target[0]);
+    const layoutRect = [target[0], target[1], target[0] + width, target[1]];
+    const values = normalizeBlockProperties(block, { text: block.text });
+    const layout = layoutTextBlock(layoutRect, values, block.metrics, block);
+    const newBottom = layoutRect[1] + layout.height;
+    const delta = newBottom - block.rect[3];
+    const followingBlocks = findFollowingBlocks(model.textBlocks, block.rect, block.index);
+    const shiftedEntries = followingBlocks.flatMap((followingBlock) =>
+      textEntriesForExistingBlock(followingBlock, delta)
+    );
+
+    this.withOperation('Resize text block', () => {
+      this.withPage(pageIndex, (page) => {
+        for (const sourceBlock of [block, ...followingBlocks]) {
+          this.removeContentInRect(page, expandRect(sourceBlock.rect, 0.35), {
+            images: false,
+            lineArt: false,
+            text: true
+          });
+        }
+        this.extendPageToFit(page, Math.max(
+          newBottom,
+          ...followingBlocks.map((candidate) => candidate.rect[3] + delta)
+        ));
+        this.appendStaticText(page, [...layout.entries, ...shiftedEntries]);
+      });
+    });
+
+    return {
+      delta,
+      shiftedBlocks: followingBlocks.length,
+      rect: [layoutRect[0], layoutRect[1], layoutRect[2], newBottom]
+    };
+  }
+
   moveTextBlock(pageIndex, blockIndex, targetRect) {
     const model = this.getPageModel(pageIndex);
     const block = model.textBlocks.find((candidate) => candidate.index === blockIndex);
@@ -1523,7 +1567,8 @@ function extractTextBlocks(structuredText) {
         text: '',
         rect: normalizeRect([...bbox]),
         baseline: null,
-        styles: new Map()
+        styles: new Map(),
+        characters: []
       };
     },
     onChar(character, origin, font, size, quad, color) {
@@ -1555,11 +1600,14 @@ function extractTextBlocks(structuredText) {
         };
         weightedStyle.weight += Math.max(1, String(character).trim().length);
         currentLine.styles.set(styleKey, weightedStyle);
-        currentLine.text += String(character);
+        const characterText = String(character);
+        const characterRect = quadToRect(quad);
+        currentLine.text += characterText;
+        currentLine.characters.push({ text: characterText, rect: characterRect });
         currentLine.baseline ||= [Number(origin[0] || 0), Number(origin[1] || 0)];
         currentLine.rect = unionRects([
           currentLine.rect,
-          quadToRect(quad)
+          characterRect
         ]);
       } finally {
         font.destroy();
@@ -1576,7 +1624,8 @@ function extractTextBlocks(structuredText) {
         rect: currentLine.rect,
         baseline: currentLine.baseline || [currentLine.rect[0], currentLine.rect[3]],
         font: style.font,
-        color: style.color
+        color: style.color,
+        characters: currentLine.characters
       });
       currentLine = null;
     },
@@ -1681,17 +1730,29 @@ function buildVisualLines(lines) {
   return rows.map((row) => {
     row.fragments.sort((left, right) => left.rect[0] - right.rect[0]);
     let text = '';
+    const characters = [];
     let previous = null;
     for (const fragment of row.fragments) {
       if (previous && needsVisualSpace(previous, fragment)) {
         text += ' ';
+        characters.push({
+          text: ' ',
+          rect: [
+            previous.rect[2],
+            Math.min(previous.rect[1], fragment.rect[1]),
+            fragment.rect[0],
+            Math.max(previous.rect[3], fragment.rect[3])
+          ]
+        });
       }
       text += fragment.text;
+      characters.push(...(fragment.characters || []));
       previous = fragment;
     }
     const style = dominantLineStyle(row.fragments);
     return {
       text,
+      characters,
       fragments: row.fragments,
       rect: row.rect,
       baseline: [row.fragments[0].baseline[0], row.baseline[1]],
