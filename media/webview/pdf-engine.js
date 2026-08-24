@@ -186,7 +186,7 @@ export class PdfEngine {
       return {
         bounds: [...page.getBounds()],
         textBlocks,
-        textLines: textBlocks.flatMap((block) => block.lines),
+        textLines: textBlocks.flatMap((block) => block.visualLines),
         images,
         annotations: this.readAnnotations(page),
         widgets: this.readWidgets(page)
@@ -370,6 +370,77 @@ export class PdfEngine {
   }
 
   /**
+   * Replaces an arbitrary character range inside an extracted text block. The
+   * complete paragraph is reflowed afterwards, so a longer replacement or a
+   * larger font creates real room and moves the following content down.
+   */
+  editTextRange(pageIndex, blockIndex, start, end, replacement, properties = {}) {
+    const model = this.getPageModel(pageIndex);
+    const block = model.textBlocks.find((candidate) => candidate.index === blockIndex);
+    if (!block) {
+      throw new Error('The selected text block no longer exists. Select it again.');
+    }
+
+    const rangeStart = Math.max(0, Math.min(block.text.length, Math.round(Number(start) || 0)));
+    const rangeEnd = Math.max(
+      rangeStart,
+      Math.min(block.text.length, Math.round(Number(end) || 0))
+    );
+    const replacementText = String(replacement || '').replaceAll('\0', '');
+    const originalValues = normalizeBlockProperties(block, { text: block.text });
+    const replacementValues = normalizeBlockProperties(block, {
+      ...properties,
+      text: replacementText
+    });
+    const runs = [
+      { text: block.text.slice(0, rangeStart), values: originalValues },
+      { text: replacementText, values: replacementValues },
+      { text: block.text.slice(rangeEnd), values: originalValues }
+    ].filter((run) => run.text.length > 0);
+    const resultingText = runs.map((run) => run.text).join('');
+    const layout = layoutRichTextBlock(
+      block.rect,
+      runs,
+      block.metrics,
+      replacementValues.alignment
+    );
+    const oldHeight = Math.max(0, block.rect[3] - block.rect[1]);
+    const delta = layout.height - oldHeight;
+    const followingBlocks = findFollowingBlocks(model.textBlocks, block.rect, block.index);
+    const shiftedEntries = followingBlocks.flatMap((followingBlock) =>
+      textEntriesForExistingBlock(followingBlock, delta)
+    );
+
+    this.withOperation(resultingText ? 'Edit text selection' : 'Delete text selection', () => {
+      this.withPage(pageIndex, (page) => {
+        for (const sourceBlock of [block, ...followingBlocks]) {
+          this.removeContentInRect(page, expandRect(sourceBlock.rect, 0.35), {
+            images: false,
+            lineArt: false,
+            text: true
+          });
+        }
+        const entries = resultingText
+          ? [...layout.entries, ...shiftedEntries]
+          : shiftedEntries;
+        const maximumBottom = Math.max(
+          resultingText ? block.rect[1] + layout.height : block.rect[1],
+          ...followingBlocks.map((candidate) => candidate.rect[3] + delta)
+        );
+        this.extendPageToFit(page, maximumBottom);
+        this.appendStaticText(page, entries);
+      });
+    });
+
+    return {
+      delta,
+      shiftedBlocks: followingBlocks.length,
+      text: resultingText,
+      rect: [block.rect[0], block.rect[1], block.rect[2], block.rect[1] + layout.height]
+    };
+  }
+
+  /**
    * Inserts a new static text block and makes room by moving intersecting text
    * blocks and all lower blocks in the same visual column.
    */
@@ -432,6 +503,71 @@ export class PdfEngine {
       delta,
       shiftedBlocks: followingBlocks.length,
       rect: [anchorRect[0], anchorRect[1], anchorRect[2], anchorRect[1] + layout.height]
+    };
+  }
+
+  /**
+   * Inserts an image as a flow object. Text intersecting the insertion point
+   * and all text below it in the same column is rewritten lower on the page.
+   */
+  insertImageBlock(pageIndex, rect, imageBytes) {
+    return this.insertFlowObject(pageIndex, rect, 'Add image block', (page, targetRect) => {
+      this.createImageStamp(page, targetRect, imageBytes);
+    });
+  }
+
+  /**
+   * Inserts an editable table as a flow object and makes room for it by moving
+   * lower text blocks instead of covering them.
+   */
+  insertTableBlock(pageIndex, rect, rows = 2, columns = 2, properties = {}) {
+    const rowCount = Math.max(1, Math.min(30, Math.round(Number(rows) || 2)));
+    const columnCount = Math.max(1, Math.min(20, Math.round(Number(columns) || 2)));
+    return this.insertFlowObject(pageIndex, rect, 'Add table block', (page, targetRect) => {
+      this.createTableAnnotation(page, targetRect, rowCount, columnCount, properties);
+    });
+  }
+
+  insertFlowObject(pageIndex, rect, label, createObject) {
+    const model = this.getPageModel(pageIndex);
+    const normalizedRect = normalizeRect(rect);
+    const objectHeight = Math.max(8, normalizedRect[3] - normalizedRect[1]);
+    const spacing = 6;
+    const delta = objectHeight + spacing;
+    const anchorRect = [
+      normalizedRect[0],
+      normalizedRect[1],
+      normalizedRect[2],
+      normalizedRect[1]
+    ];
+    const followingBlocks = findBlocksAtOrBelow(model.textBlocks, anchorRect);
+    const shiftedEntries = followingBlocks.flatMap((followingBlock) =>
+      textEntriesForExistingBlock(followingBlock, delta)
+    );
+
+    this.withOperation(label, () => {
+      this.withPage(pageIndex, (page) => {
+        for (const sourceBlock of followingBlocks) {
+          this.removeContentInRect(page, expandRect(sourceBlock.rect, 0.35), {
+            images: false,
+            lineArt: false,
+            text: true
+          });
+        }
+        const maximumBottom = Math.max(
+          normalizedRect[3],
+          ...followingBlocks.map((candidate) => candidate.rect[3] + delta)
+        );
+        this.extendPageToFit(page, maximumBottom);
+        this.appendStaticText(page, shiftedEntries);
+        createObject(page, normalizedRect);
+      });
+    });
+
+    return {
+      delta,
+      shiftedBlocks: followingBlocks.length,
+      rect: normalizedRect
     };
   }
 
@@ -1451,27 +1587,28 @@ function extractTextBlocks(structuredText) {
       const lines = currentBlock.lines.filter((line) => line.text.length > 0);
       if (lines.length > 0) {
         const visualLines = buildVisualLines(lines);
-        const rect = unionRects([
-          currentBlock.sourceRect,
-          ...lines.map((line) => line.rect)
-        ]);
-        const blockStyle = dominantLineStyle(lines);
-        const index = blocks.length;
-        blocks.push({
-          index,
-          rect,
-          text: visualLines.map((line) => line.text.trim()).join(' ').trim(),
-          lines: lines.map((line, lineIndex) => ({
-            ...line,
-            blockIndex: index,
-            lineIndex
-          })),
-          visualLines,
-          font: blockStyle.font,
-          color: blockStyle.color,
-          alignment: inferTextAlignment(rect, visualLines),
-          metrics: metricsForBlock(rect, visualLines, blockStyle.font.size)
-        });
+        for (const paragraphLines of splitVisualLinesIntoParagraphs(visualLines)) {
+          const paragraphFragments = paragraphLines.flatMap((line) => line.fragments);
+          const rect = unionRects(paragraphLines.map((line) => line.rect));
+          const blockStyle = dominantLineStyle(paragraphFragments);
+          const index = blocks.length;
+          const decoratedLines = decorateParagraphLines(paragraphLines, index);
+          blocks.push({
+            index,
+            rect,
+            text: decoratedLines.text,
+            lines: paragraphFragments.map((line, lineIndex) => ({
+              ...line,
+              blockIndex: index,
+              lineIndex
+            })),
+            visualLines: decoratedLines.lines,
+            font: blockStyle.font,
+            color: blockStyle.color,
+            alignment: inferTextAlignment(rect, paragraphLines),
+            metrics: metricsForBlock(rect, paragraphLines, blockStyle.font.size)
+          });
+        }
       }
       currentBlock = null;
     }
@@ -1555,6 +1692,7 @@ function buildVisualLines(lines) {
     const style = dominantLineStyle(row.fragments);
     return {
       text,
+      fragments: row.fragments,
       rect: row.rect,
       baseline: [row.fragments[0].baseline[0], row.baseline[1]],
       font: style.font,
@@ -1697,6 +1835,261 @@ function resolveBase14Font(family, bold, italic) {
     return 'Helvetica-Oblique';
   }
   return 'Helvetica';
+}
+
+
+function splitVisualLinesIntoParagraphs(visualLines) {
+  if (!Array.isArray(visualLines) || visualLines.length === 0) {
+    return [];
+  }
+  if (visualLines.length === 1) {
+    return [[visualLines[0]]];
+  }
+
+  const lines = [...visualLines].sort((left, right) => {
+    const yDifference = left.baseline[1] - right.baseline[1];
+    return Math.abs(yDifference) > 0.75
+      ? yDifference
+      : left.rect[0] - right.rect[0];
+  });
+  const paragraphs = [];
+  let paragraph = [lines[0]];
+
+  for (const line of lines.slice(1)) {
+    const previous = paragraph.at(-1);
+    const previousHeight = Math.max(1, previous.rect[3] - previous.rect[1]);
+    const currentHeight = Math.max(1, line.rect[3] - line.rect[1]);
+    const fontSize = Math.max(
+      1,
+      Number(previous.font?.size || 0),
+      Number(line.font?.size || 0)
+    );
+    const verticalGap = line.rect[1] - previous.rect[3];
+    const baselineGap = line.baseline[1] - previous.baseline[1];
+    const expectedLineHeight = Math.max(previousHeight, currentHeight, fontSize * 1.05);
+    const paragraphGap = Math.max(3, fontSize * 0.55);
+    const startsNewParagraph =
+      verticalGap > paragraphGap ||
+      baselineGap > expectedLineHeight * 1.75;
+
+    if (startsNewParagraph) {
+      paragraphs.push(paragraph);
+      paragraph = [line];
+    } else {
+      paragraph.push(line);
+    }
+  }
+
+  paragraphs.push(paragraph);
+  return paragraphs;
+}
+
+function decorateParagraphLines(paragraphLines, blockIndex) {
+  let text = '';
+  const lines = [];
+
+  for (const sourceLine of paragraphLines) {
+    const lineText = String(sourceLine.text || '').trim();
+    if (!lineText) {
+      continue;
+    }
+    const separator = text ? ' ' : '';
+    const start = text.length + separator.length;
+    text += separator + lineText;
+    const end = text.length;
+    const lineIndex = lines.length;
+    lines.push({
+      ...sourceLine,
+      text: lineText,
+      blockIndex,
+      lineIndex,
+      start,
+      end,
+      startOffset: start,
+      endOffset: end,
+      textStart: start,
+      textEnd: end
+    });
+  }
+
+  return { text, lines };
+}
+
+function layoutRichTextBlock(rect, runs, metrics, alignment = 0) {
+  const normalizedRuns = (Array.isArray(runs) ? runs : [])
+    .map((run) => ({
+      text: String(run?.text || '').replaceAll('\r\n', '\n').replaceAll('\r', '\n'),
+      values: run?.values || {}
+    }))
+    .filter((run) => run.text.length > 0);
+
+  if (normalizedRuns.length === 0) {
+    return { height: 0, entries: [], lines: [] };
+  }
+
+  const width = Math.max(24, rect[2] - rect[0]);
+  const fonts = new Map();
+  const getFont = (fontName) => {
+    const name = String(fontName || 'Helvetica');
+    if (!fonts.has(name)) {
+      fonts.set(name, new mupdf.Font(name));
+    }
+    return fonts.get(name);
+  };
+  const itemWidth = (item) => measureText(
+    getFont(item.values.fontName),
+    item.character,
+    Math.max(4, Number(item.values.fontSize || 12))
+  );
+  const lineWidth = (items) => items.reduce((sum, item) => sum + itemWidth(item), 0);
+  const trimLine = (items) => {
+    let start = 0;
+    let end = items.length;
+    while (start < end && /\s/u.test(items[start].character)) {
+      start += 1;
+    }
+    while (end > start && /\s/u.test(items[end - 1].character)) {
+      end -= 1;
+    }
+    return items.slice(start, end);
+  };
+
+  try {
+    const items = [];
+    for (const run of normalizedRuns) {
+      for (const character of run.text) {
+        items.push({ character, values: run.values });
+      }
+    }
+
+    const wrappedLines = [];
+    let current = [];
+    let currentWidth = 0;
+
+    const commitLine = (lineItems) => {
+      wrappedLines.push(trimLine(lineItems));
+    };
+
+    for (const item of items) {
+      if (item.character === '\n') {
+        commitLine(current);
+        current = [];
+        currentWidth = 0;
+        continue;
+      }
+
+      const widthToAdd = itemWidth(item);
+      if (current.length > 0 && currentWidth + widthToAdd > width + 0.5) {
+        let breakAt = -1;
+        for (let index = current.length - 1; index >= 0; index -= 1) {
+          if (/\s/u.test(current[index].character)) {
+            breakAt = index;
+            break;
+          }
+        }
+
+        if (breakAt >= 0) {
+          const carry = current.slice(breakAt + 1);
+          commitLine(current.slice(0, breakAt));
+          current = carry;
+          currentWidth = lineWidth(current);
+        } else {
+          commitLine(current);
+          current = [];
+          currentWidth = 0;
+        }
+      }
+
+      if (/\s/u.test(item.character) && current.length === 0) {
+        continue;
+      }
+      current.push(item);
+      currentWidth += widthToAdd;
+    }
+    commitLine(current);
+
+    const maximumFontSize = Math.max(
+      4,
+      ...normalizedRuns.map((run) => Math.max(4, Number(run.values.fontSize || 12)))
+    );
+    const baselineOffset = clampNumber(
+      Number(metrics?.baselineOffsetRatio || 1.05) * maximumFontSize,
+      maximumFontSize * 0.75,
+      maximumFontSize * 1.5
+    );
+    const lineHeight = clampNumber(
+      Number(metrics?.lineHeightRatio || 1.25) * maximumFontSize,
+      maximumFontSize,
+      maximumFontSize * 2
+    );
+    const descent = clampNumber(
+      Number(metrics?.descentRatio || 0.25) * maximumFontSize,
+      maximumFontSize * 0.12,
+      maximumFontSize * 0.6
+    );
+    const height = baselineOffset + Math.max(0, wrappedLines.length - 1) * lineHeight + descent;
+    const entries = [];
+
+    wrappedLines.forEach((lineItems, lineIndex) => {
+      const measuredWidth = lineWidth(lineItems);
+      let x = rect[0];
+      if (alignment === 1) {
+        x = rect[0] + (width - measuredWidth) / 2;
+      } else if (alignment === 2) {
+        x = rect[2] - measuredWidth;
+      }
+      const baselineY = rect[1] + baselineOffset + lineIndex * lineHeight;
+      let segment = [];
+      let segmentKey = null;
+
+      const flushSegment = () => {
+        if (segment.length === 0) {
+          return;
+        }
+        const values = segment[0].values;
+        const text = segment.map((entry) => entry.character).join('');
+        if (text) {
+          entries.push({
+            text,
+            baseline: [x, baselineY],
+            fontName: values.fontName || 'Helvetica',
+            fontSize: Math.max(4, Number(values.fontSize || 12)),
+            color: normalizeColor(values.color, [0, 0, 0])
+          });
+          x += measureText(
+            getFont(values.fontName),
+            text,
+            Math.max(4, Number(values.fontSize || 12))
+          );
+        }
+        segment = [];
+        segmentKey = null;
+      };
+
+      for (const entry of lineItems) {
+        const values = entry.values;
+        const key = JSON.stringify([
+          values.fontName || 'Helvetica',
+          Math.max(4, Number(values.fontSize || 12)),
+          normalizeColor(values.color, [0, 0, 0])
+        ]);
+        if (segmentKey !== null && key !== segmentKey) {
+          flushSegment();
+        }
+        segmentKey = key;
+        segment.push(entry);
+      }
+      flushSegment();
+    });
+
+    return {
+      height,
+      entries,
+      lines: wrappedLines.map((line) => line.map((item) => item.character).join(''))
+    };
+  } finally {
+    destroyAll(fonts.values());
+  }
 }
 
 function layoutTextBlock(rect, values, metrics, originalBlock = null) {

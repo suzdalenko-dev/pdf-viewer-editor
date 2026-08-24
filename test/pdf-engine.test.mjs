@@ -67,6 +67,37 @@ function createFlowingTextPdf() {
   return bytes;
 }
 
+function createMergedParagraphPdf() {
+  const document = new mupdf.PDFDocument();
+  const resources = document.newDictionary();
+  const fonts = document.newDictionary();
+  const font = new mupdf.Font('Helvetica');
+  const fontReference = document.addSimpleFont(font, 'Latin');
+  fonts.put('F0', fontReference);
+  resources.put('Font', fonts);
+  const contents = [
+    'BT /F0 12 Tf',
+    '30 365 Td (First visual paragraph starts here) Tj',
+    '0 -15 Td (and continues on its second line.) Tj',
+    '0 -42 Td (Second visual paragraph starts after a gap) Tj',
+    '0 -15 Td (and has another wrapped line.) Tj',
+    'ET'
+  ].join('\n');
+  const page = document.addPage([0, 0, 300, 420], 0, resources, contents);
+  document.insertPage(-1, page);
+  const buffer = document.saveToBuffer('garbage=4,compress=yes');
+  const bytes = new Uint8Array(buffer.asUint8Array()).slice();
+
+  buffer.destroy();
+  page.destroy();
+  fontReference.destroy();
+  font.destroy();
+  fonts.destroy();
+  resources.destroy();
+  document.destroy();
+  return bytes;
+}
+
 test('password-protected PDFs require and accept authentication', () => {
   const engine = new PdfEngine();
   try {
@@ -241,6 +272,86 @@ test('text blocks reflow, move following content, and remain searchable', () => 
     } finally {
       reopened.destroy();
     }
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('visual paragraph detection avoids one giant selection block', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createMergedParagraphPdf());
+    const model = engine.getPageModel(0);
+    assert.equal(model.textBlocks.length, 2);
+    assert.equal(model.textLines.length, 4);
+    assert.equal(model.textBlocks[0].visualLines.length, 2);
+    assert.equal(model.textBlocks[1].visualLines.length, 2);
+    assert.equal(model.textLines[0].blockIndex, model.textLines[1].blockIndex);
+    assert.notEqual(model.textLines[1].blockIndex, model.textLines[2].blockIndex);
+    assert.ok(model.textBlocks[0].rect[3] < model.textBlocks[1].rect[1]);
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('a selected text range can change content and format with real reflow', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createFlowingTextPdf());
+    const originalModel = engine.getPageModel(0);
+    const firstBlock = originalModel.textBlocks.find((block) =>
+      block.text.includes('First paragraph')
+    );
+    const originalSecond = originalModel.textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    const start = firstBlock.text.indexOf('paragraph');
+    const result = engine.editTextRange(
+      0,
+      firstBlock.index,
+      start,
+      start + 'paragraph'.length,
+      'much larger selected passage that wraps',
+      { fontFamily: 'Times-Roman', fontSize: 28, color: [0.8, 0.1, 0.1] }
+    );
+    assert.ok(result.delta > 0);
+    assert.equal(engine.search('First').length, 1);
+    assert.equal(engine.search('much larger selected').length, 1);
+    assert.equal(engine.search('First paragraph').length, 0);
+    const shiftedSecond = engine.getPageModel(0).textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(shiftedSecond.rect[1] > originalSecond.rect[1]);
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('flow image and table insertion move lower text instead of covering it', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createFlowingTextPdf());
+    const originalSecond = engine.getPageModel(0).textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    const imageBytes = engine.exportPageImage(0, 'png', 24);
+    const imageResult = engine.insertImageBlock(0, [30, 90, 150, 150], imageBytes);
+    assert.ok(imageResult.shiftedBlocks > 0);
+    const afterImage = engine.getPageModel(0);
+    const imageShiftedSecond = afterImage.textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(imageShiftedSecond.rect[1] > originalSecond.rect[1]);
+    assert.ok(afterImage.annotations.some((annotation) => annotation.type === 'Stamp'));
+
+    const tableResult = engine.insertTableBlock(0, [30, 155, 270, 225], 3, 4);
+    assert.ok(tableResult.shiftedBlocks > 0);
+    const afterTable = engine.getPageModel(0);
+    const tableShiftedSecond = afterTable.textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(tableShiftedSecond.rect[1] > imageShiftedSecond.rect[1]);
+    assert.ok(afterTable.annotations.some((annotation) => annotation.table));
   } finally {
     engine.destroy();
   }

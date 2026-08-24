@@ -2,6 +2,24 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí.
 
+## 0.0.4 - 2026-08-23
+
+### Corregido
+
+- La edición de texto deja de depender de rectángulos Fabric sobre bloques completos; la selección se realiza directamente sobre el texto visible.
+- Arrastrar sobre una palabra o frase permite editar, borrar o cambiar el formato solo de ese rango.
+- Un clic sobre una línea selecciona su párrafo sin dibujar el antiguo recuadro azul gigante.
+- La selección parcial conserva el resto del párrafo y vuelve a calcular el reflujo cuando cambia el contenido o el tamaño de fuente.
+- Las imágenes originales e insertadas se pueden seleccionar directamente; el botón `Imagen` reemplaza la imagen seleccionada manteniendo su zona.
+- Las imágenes insertadas siguen pudiéndose mover, redimensionar y eliminar; las imágenes originales pueden reemplazarse o eliminarse.
+- Se incorporan de forma completa las piezas de selección por rango e inserción contextual que no habían quedado consolidadas en `main` tras la 0.0.3.
+- Nuevo icono de Marketplace incluido en el paquete de la extensión.
+
+### Pruebas
+
+- Se mantienen las pruebas de segmentación visual de párrafos, edición de rangos con reflujo e inserción de imágenes/tablas en el flujo.
+- El pipeline de CI valida lint, tipos, pruebas y empaquetado VSIX antes del merge.
+
 ## 0.0.3 - 2026-08-23
 
 ### Corregido

@@ -332,6 +332,7 @@ input[type="color"] {
 
 #pdf-canvas,
 .text-layer,
+.insertion-layer,
 .page-stage > .canvas-container {
   position: absolute !important;
   inset: 0;
@@ -342,7 +343,7 @@ input[type="color"] {
 }
 
 .text-layer {
-  z-index: 2;
+  z-index: 4;
   overflow: hidden;
   pointer-events: none;
 }
@@ -351,13 +352,131 @@ input[type="color"] {
   position: absolute;
   overflow: hidden;
   color: transparent;
+  border-radius: 2px;
   line-height: 1;
   white-space: pre;
+  cursor: text;
+  pointer-events: auto;
+  user-select: text;
   transform-origin: 0 0;
+  transition: background-color 80ms ease;
+}
+
+.text-layer-line:hover {
+  background: color-mix(in srgb, var(--focus) 9%, transparent);
+}
+
+.text-layer-line.selected {
+  background: color-mix(in srgb, var(--focus) 12%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--focus) 75%, transparent);
+}
+
+.text-layer-line::selection {
+  color: transparent;
+  background: color-mix(in srgb, var(--focus) 38%, transparent);
+}
+
+.text-layer.placement-mode .text-layer-line {
+  pointer-events: none;
+  user-select: none;
 }
 
 .page-stage > .canvas-container {
   z-index: 3;
+}
+
+.insertion-layer {
+  z-index: 5;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.insertion-marker {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  color: var(--focus);
+  background: transparent;
+  opacity: 0.32;
+  pointer-events: auto;
+  transition: opacity 100ms ease;
+}
+
+.insertion-marker:hover,
+.insertion-marker:focus-visible {
+  border: 0;
+  background: transparent;
+  opacity: 1;
+}
+
+.insertion-layer.disabled .insertion-marker {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.insertion-plus {
+  display: grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--focus);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.insertion-guide {
+  flex: 1 1 auto;
+  height: 1px;
+  margin-left: 4px;
+  background: var(--focus);
+}
+
+.insert-menu {
+  position: absolute;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 220px;
+  padding: 5px;
+  border: 1px solid var(--focus);
+  border-radius: 5px;
+  color: var(--foreground);
+  background: var(--surface);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.28);
+}
+
+.insert-menu span {
+  margin-right: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.insert-menu button {
+  min-height: 25px;
+  padding: 3px 8px;
+}
+
+.edit-range-button {
+  position: absolute;
+  z-index: 7;
+  width: 126px;
+  min-height: 28px;
+  color: var(--primary-text);
+  background: var(--primary);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.28);
+}
+
+.edit-range-button:hover:not(:disabled) {
+  background: var(--primary-hover);
 }
 
 .block-editor {

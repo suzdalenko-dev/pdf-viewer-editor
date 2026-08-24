@@ -2,7 +2,7 @@
 
 Editor visual de PDF gratuito para Visual Studio Code, construido en JavaScript con MuPDF.js y Fabric.js.
 
-La versión `0.0.3` se concentra en una tarea: **seleccionar y editar el contenido visible de forma natural**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
+La versión `0.0.4` se concentra en una tarea: **seleccionar y editar directamente el contenido visible de forma natural**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
 
 > Conserva una copia del documento original cuando trabajes con archivos importantes. Un PDF describe objetos colocados en coordenadas y no siempre contiene párrafos equivalentes a los de Word; esta extensión reconstruye bloques editables a partir de la estructura visual detectada por MuPDF.
 
@@ -103,7 +103,7 @@ npm run package
 | `npm run typecheck` | Comprueba el host de la extensión con TypeScript `checkJs` |
 | `npm test` | Ejecuta pruebas unitarias y de integración contra MuPDF/WASM |
 | `npm run check` | Ejecuta lint, typecheck y pruebas |
-| `npm run package` | Genera `pdf-viewer-editor-0.0.3.vsix` |
+| `npm run package` | Genera `pdf-viewer-editor-0.0.4.vsix` |
 
 El script `prepare` copia MuPDF y Fabric a `media/vendor`; esa carpeta se genera y no se versiona.
 

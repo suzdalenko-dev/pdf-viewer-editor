@@ -8,3 +8,4 @@ eslint.config.js
 jsconfig.json
 package-lock.json
 *.vsix
+.v004/**

@@ -30,7 +30,9 @@ const state = {
   fabricCanvas: null,
   overlayObjects: [],
   selected: null,
+  textRange: null,
   editing: null,
+  insertionAnchor: null,
   pendingImage: null,
   pendingTable: null,
   drawStart: null,
@@ -57,6 +59,8 @@ const elements = Object.fromEntries([
   'table-rows', 'table-columns', 'table-color', 'table-border-width', 'apply-table',
   'image-context', 'image-kind', 'image-help', 'pages-sidebar', 'thumbnail-list',
   'page-viewport', 'page-stage', 'pdf-canvas', 'text-layer', 'editor-canvas',
+  'insertion-layer', 'insert-menu', 'insert-text-here', 'insert-image-here',
+  'insert-table-here', 'edit-range-button',
   'block-editor', 'block-editor-text', 'cancel-block-edit', 'apply-block-edit',
   'status-message', 'document-info', 'loading-overlay', 'loading-message',
   'dialog-backdrop', 'editor-dialog', 'dialog-form', 'dialog-title',
@@ -121,7 +125,7 @@ async function loadDocument(message) {
     await renderCurrentPage();
     void renderThumbnails();
     elements.app.setAttribute('aria-busy', 'false');
-    setStatus('Selecciona un bloque de texto para editarlo.');
+    setStatus('Haz clic en un párrafo, selecciona una frase o usa + para insertar.');
   } catch (error) {
     reportError(error);
   } finally {
@@ -135,6 +139,7 @@ async function renderCurrentPage(options = {}) {
   if (state.pageCount === 0) {
     return;
   }
+  hideInsertMenu();
   setBusy(true, `Renderizando página ${state.currentPage + 1}…`);
   try {
     state.pageModel = engine.getPageModel(state.currentPage);
@@ -149,6 +154,7 @@ async function renderCurrentPage(options = {}) {
     initializeOrResizeFabricCanvas();
     buildTextLayer();
     buildEditingOverlay();
+    buildInsertionLayer();
     updatePageControls();
     updateDocumentInfo();
     if (!restoreSelection(options)) {
@@ -201,7 +207,7 @@ function initializeOrResizeFabricCanvas() {
     state.fabricCanvas.on('selection:created', selectionChanged);
     state.fabricCanvas.on('selection:updated', selectionChanged);
     state.fabricCanvas.on('selection:cleared', () => {
-      if (!state.editing) {
+      if (!state.editing && state.selected?.kind !== 'text') {
         clearSelection();
       }
     });
@@ -227,18 +233,285 @@ function buildTextLayer() {
   layer.replaceChildren();
   layer.style.width = `${state.render.width}px`;
   layer.style.height = `${state.render.height}px`;
+  layer.classList.toggle('disabled', state.tool !== 'edit');
+  layer.classList.toggle('placement-mode', state.tool !== 'edit');
   for (const line of state.pageModel.textLines) {
     const screen = pdfRectToScreen(line.rect);
     const item = document.createElement('span');
     item.className = 'text-layer-line';
     item.textContent = line.text;
+    item.dataset.blockIndex = String(line.blockIndex);
+    item.dataset.lineIndex = String(line.lineIndex);
+    item.dataset.textStart = String(line.textStart);
+    item.dataset.textEnd = String(line.textEnd);
+    item.title = 'Haz clic para editar este párrafo; arrastra para seleccionar texto';
     item.style.left = `${screen[0]}px`;
     item.style.top = `${screen[1]}px`;
     item.style.width = `${Math.max(1, screen[2] - screen[0])}px`;
     item.style.height = `${Math.max(1, screen[3] - screen[1])}px`;
     item.style.fontSize = `${Math.max(4, line.font.size * state.render.scale)}px`;
     item.style.fontFamily = line.font.family;
+    item.style.fontWeight = line.font.weight;
+    item.style.fontStyle = line.font.style;
+    item.addEventListener('click', textLineClicked);
+    item.addEventListener('dblclick', () => window.requestAnimationFrame(updateTextRangeFromSelection));
     layer.appendChild(item);
+  }
+}
+
+function textLineClicked(event) {
+  if (state.tool !== 'edit' || state.busy) {
+    return;
+  }
+  hideInsertMenu();
+  const blockIndex = Number(event.currentTarget.dataset.blockIndex);
+  window.requestAnimationFrame(() => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selectionInsideTextLayer(selection)) {
+      updateTextRangeFromSelection();
+    } else {
+      selectTextBlock(blockIndex);
+    }
+  });
+}
+
+function selectTextBlock(blockIndex, options = {}) {
+  const block = state.pageModel?.textBlocks.find((candidate) => candidate.index === blockIndex);
+  if (!block) {
+    return false;
+  }
+  if (!options.preserveRange) {
+    state.textRange = null;
+    hideEditRangeButton();
+  }
+  const meta = {
+    kind: 'text',
+    rect: block.rect,
+    blockIndex: block.index,
+    block
+  };
+  state.selected = meta;
+  if (state.fabricCanvas?.getActiveObject()) {
+    state.fabricCanvas.discardActiveObject();
+    state.fabricCanvas.requestRenderAll();
+  }
+  for (const line of elements['text-layer'].querySelectorAll('.text-layer-line')) {
+    line.classList.toggle('selected', Number(line.dataset.blockIndex) === blockIndex);
+  }
+  selectMeta(meta);
+  return true;
+}
+
+function updateTextRangeFromSelection() {
+  if (state.busy || state.editing) {
+    return;
+  }
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selectionInsideTextLayer(selection)) {
+    hideEditRangeButton();
+    return;
+  }
+  const range = selection.getRangeAt(0);
+  const start = selectionEndpointToTextOffset(range.startContainer, range.startOffset);
+  const end = selectionEndpointToTextOffset(range.endContainer, range.endOffset);
+  if (!start || !end || start.blockIndex !== end.blockIndex || end.offset <= start.offset) {
+    state.textRange = null;
+    hideEditRangeButton();
+    setStatus('Para editar, selecciona texto dentro de un mismo párrafo.');
+    return;
+  }
+  const block = state.pageModel.textBlocks.find((candidate) =>
+    candidate.index === start.blockIndex
+  );
+  if (!block) {
+    return;
+  }
+  state.textRange = {
+    blockIndex: block.index,
+    start: start.offset,
+    end: end.offset,
+    text: block.text.slice(start.offset, end.offset)
+  };
+  selectTextBlock(block.index, { preserveRange: true });
+  showEditRangeButton(range);
+  setStatus('Texto seleccionado: pulsa “Editar selección”, cambia su formato o elimínalo.');
+}
+
+function selectionInsideTextLayer(selection) {
+  const anchor = selection.anchorNode;
+  const focus = selection.focusNode;
+  return Boolean(
+    anchor && focus &&
+    elements['text-layer'].contains(anchor) &&
+    elements['text-layer'].contains(focus)
+  );
+}
+
+function selectionEndpointToTextOffset(node, offset) {
+  const element = node.nodeType === window.Node.TEXT_NODE ? node.parentElement : node;
+  const line = element instanceof window.Element ? element.closest('.text-layer-line') : null;
+  if (!line || !elements['text-layer'].contains(line)) {
+    return null;
+  }
+  let localOffset = 0;
+  try {
+    const localRange = document.createRange();
+    localRange.selectNodeContents(line);
+    localRange.setEnd(node, offset);
+    localOffset = localRange.toString().length;
+  } catch {
+    localOffset = offset > 0 ? line.textContent.length : 0;
+  }
+  return {
+    blockIndex: Number(line.dataset.blockIndex),
+    offset: Number(line.dataset.textStart) + clamp(localOffset, 0, line.textContent.length)
+  };
+}
+
+function showEditRangeButton(range) {
+  const button = elements['edit-range-button'];
+  const selectionRect = range.getBoundingClientRect();
+  const stageRect = elements['page-stage'].getBoundingClientRect();
+  const width = 126;
+  button.style.left = `${clamp(
+    selectionRect.left - stageRect.left + selectionRect.width / 2 - width / 2,
+    4,
+    Math.max(4, state.render.width - width - 4)
+  )}px`;
+  button.style.top = `${clamp(
+    selectionRect.bottom - stageRect.top + 5,
+    4,
+    Math.max(4, state.render.height - 34)
+  )}px`;
+  button.classList.remove('hidden');
+}
+
+function hideEditRangeButton() {
+  elements['edit-range-button'].classList.add('hidden');
+}
+
+function buildInsertionLayer() {
+  const layer = elements['insertion-layer'];
+  layer.replaceChildren();
+  layer.style.width = `${state.render.width}px`;
+  layer.style.height = `${state.render.height}px`;
+  const blocks = [...state.pageModel.textBlocks].sort((left, right) =>
+    left.rect[1] - right.rect[1] || left.rect[0] - right.rect[0]
+  );
+  const bounds = state.pageModel.bounds;
+  const anchors = [];
+
+  if (blocks.length === 0) {
+    anchors.push({
+      x: bounds[0] + 24,
+      y: bounds[1] + 36,
+      width: Math.max(100, bounds[2] - bounds[0] - 48),
+      displayY: bounds[1] + 36,
+      label: 'Insertar contenido en la página'
+    });
+  } else {
+    const first = blocks[0];
+    anchors.push({
+      x: first.rect[0],
+      y: Math.max(bounds[1] + 6, first.rect[1] - 10),
+      width: Math.max(80, first.rect[2] - first.rect[0]),
+      displayY: Math.max(bounds[1] + 6, first.rect[1] - 10),
+      label: 'Insertar antes del primer párrafo'
+    });
+    for (let index = 1; index < blocks.length; index += 1) {
+      const previous = blocks[index - 1];
+      const current = blocks[index];
+      if (!rectanglesShareScreenFlow(previous.rect, current.rect)) {
+        continue;
+      }
+      const displayY = Math.max(
+        previous.rect[3] + 2,
+        (previous.rect[3] + current.rect[1]) / 2
+      );
+      anchors.push({
+        x: current.rect[0],
+        y: displayY,
+        width: Math.max(80, current.rect[2] - current.rect[0]),
+        displayY,
+        label: `Insertar antes de “${current.text.slice(0, 36)}”`
+      });
+    }
+    const last = blocks.at(-1);
+    const afterY = Math.min(bounds[3] - 8, last.rect[3] + 10);
+    anchors.push({
+      x: last.rect[0],
+      y: afterY,
+      width: Math.max(80, last.rect[2] - last.rect[0]),
+      displayY: afterY,
+      label: 'Insertar después del último párrafo'
+    });
+  }
+
+  const usedPositions = [];
+  for (const anchor of anchors) {
+    const screenPoint = pdfPointToScreen([anchor.x, anchor.displayY]);
+    if (usedPositions.some((position) => Math.abs(position - screenPoint[1]) < 8)) {
+      continue;
+    }
+    usedPositions.push(screenPoint[1]);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'insertion-marker';
+    button.setAttribute('aria-label', anchor.label);
+    button.title = `${anchor.label}: texto, imagen o tabla`;
+    button.style.left = `${Math.max(2, screenPoint[0] - 24)}px`;
+    button.style.top = `${clamp(screenPoint[1] - 9, 1, state.render.height - 19)}px`;
+    button.style.width = `${Math.min(
+      state.render.width - Math.max(2, screenPoint[0] - 24) - 2,
+      Math.max(54, anchor.width * state.render.scale + 24)
+    )}px`;
+    button.innerHTML = '<span class="insertion-plus">+</span><span class="insertion-guide"></span>';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openInsertMenu(anchor, button);
+    });
+    layer.appendChild(button);
+  }
+}
+
+function rectanglesShareScreenFlow(left, right) {
+  const overlap = Math.max(0, Math.min(left[2], right[2]) - Math.max(left[0], right[0]));
+  const minimumWidth = Math.max(1, Math.min(left[2] - left[0], right[2] - right[0]));
+  return overlap / minimumWidth >= 0.25;
+}
+
+function pdfPointToScreen(point) {
+  const bounds = state.render.bounds;
+  return [
+    (point[0] - bounds[0]) * state.render.scale,
+    (point[1] - bounds[1]) * state.render.scale
+  ];
+}
+
+function openInsertMenu(anchor, marker) {
+  state.insertionAnchor = anchor;
+  const menu = elements['insert-menu'];
+  const markerRect = marker.getBoundingClientRect();
+  const stageRect = elements['page-stage'].getBoundingClientRect();
+  menu.classList.remove('hidden');
+  const menuWidth = Math.max(220, menu.offsetWidth);
+  menu.style.left = `${clamp(
+    markerRect.left - stageRect.left,
+    4,
+    Math.max(4, state.render.width - menuWidth - 4)
+  )}px`;
+  menu.style.top = `${clamp(
+    markerRect.bottom - stageRect.top + 3,
+    4,
+    Math.max(4, state.render.height - menu.offsetHeight - 4)
+  )}px`;
+}
+
+function hideInsertMenu(options = {}) {
+  elements['insert-menu'].classList.add('hidden');
+  if (!options.preserveAnchor) {
+    state.insertionAnchor = null;
   }
 }
 
@@ -289,18 +562,6 @@ function buildEditingOverlay() {
     }
   }
 
-  for (const block of state.pageModel.textBlocks) {
-    addOverlayObject({
-      kind: 'text',
-      rect: block.rect,
-      blockIndex: block.index,
-      block
-    }, {
-      stroke: '#1473e6',
-      movable: true,
-      resizable: false
-    });
-  }
   state.fabricCanvas.requestRenderAll();
 }
 
@@ -369,6 +630,12 @@ function selectionChanged(event) {
 
 function selectMeta(meta) {
   state.selected = meta;
+  if (meta.kind !== 'text') {
+    state.textRange = null;
+    hideEditRangeButton();
+    clearTextLineHighlights();
+    clearNativeTextSelection();
+  }
   elements['delete-tool'].disabled = false;
   elements['selection-context'].classList.remove('hidden');
   elements['text-context'].classList.toggle('hidden', meta.kind !== 'text');
@@ -380,7 +647,9 @@ function selectMeta(meta) {
 
   if (meta.kind === 'text') {
     setTextControlsFromBlock(meta.block);
-    setStatus('Bloque seleccionado: cambia el formato o pulsa “Editar contenido”.');
+    setStatus(state.textRange
+      ? 'Texto seleccionado: edítalo, cambia su formato o elimínalo.'
+      : 'Párrafo seleccionado: pulsa “Editar contenido” o selecciona una frase.');
   } else if (meta.kind === 'table') {
     elements['table-rows'].value = String(meta.table.rows);
     elements['table-columns'].value = String(meta.table.columns);
@@ -389,17 +658,20 @@ function selectMeta(meta) {
     setStatus('Tabla seleccionada: cambia filas/columnas, muévela o elimínala.');
   } else if (meta.kind === 'inserted-image') {
     elements['image-kind'].textContent = 'Imagen insertada';
-    elements['image-help'].textContent = 'Arrastra para mover; usa las esquinas para redimensionar.';
-    setStatus('Imagen seleccionada.');
+    elements['image-help'].textContent = 'Arrastra para mover, usa las esquinas para redimensionar o pulsa Imagen para reemplazarla.';
+    setStatus('Imagen seleccionada: puedes moverla, redimensionarla, reemplazarla o eliminarla.');
   } else {
     elements['image-kind'].textContent = 'Imagen original';
-    elements['image-help'].textContent = 'Esta imagen original se puede eliminar permanentemente.';
-    setStatus('Imagen original seleccionada.');
+    elements['image-help'].textContent = 'Pulsa Imagen para reemplazarla manteniendo su zona, o Eliminar para quitarla.';
+    setStatus('Imagen original seleccionada: puedes reemplazarla o eliminarla.');
   }
 }
 
 function clearSelection() {
   state.selected = null;
+  state.textRange = null;
+  hideEditRangeButton();
+  clearTextLineHighlights();
   elements['delete-tool'].disabled = true;
   elements['selection-context'].classList.add('hidden');
   elements['text-context'].classList.add('hidden');
@@ -408,6 +680,19 @@ function clearSelection() {
   if (state.fabricCanvas?.getActiveObject()) {
     state.fabricCanvas.discardActiveObject();
     state.fabricCanvas.requestRenderAll();
+  }
+}
+
+function clearTextLineHighlights() {
+  for (const line of elements['text-layer'].querySelectorAll('.text-layer-line.selected')) {
+    line.classList.remove('selected');
+  }
+}
+
+function clearNativeTextSelection() {
+  const selection = window.getSelection();
+  if (selection && selectionInsideTextLayer(selection)) {
+    selection.removeAllRanges();
   }
 }
 
@@ -480,7 +765,7 @@ function overlayMouseUp(event) {
   const table = state.pendingTable;
   state.pendingTable = null;
   setTool('edit');
-  engine.addTable(
+  engine.insertTableBlock(
     state.currentPage,
     screenRectToPdf(screenRect),
     table.rows,
@@ -492,8 +777,8 @@ function overlayMouseUp(event) {
 
 function overlayDoubleClick(event) {
   const meta = event.target?.editorMeta;
-  if (meta?.kind === 'text') {
-    openExistingTextEditor(meta.block);
+  if (meta?.kind === 'table') {
+    void applyTableProperties();
   }
 }
 
@@ -505,10 +790,7 @@ async function overlayObjectModified(event) {
   }
   const targetRect = objectScreenRectToPdf(object);
   try {
-    if (meta.kind === 'text') {
-      engine.moveTextBlock(state.currentPage, meta.blockIndex, targetRect);
-      await commitAndRefresh('Mover texto', { restoreText: meta.block.text });
-    } else if (meta.kind === 'inserted-image') {
+    if (meta.kind === 'inserted-image') {
       engine.updateAnnotationRect(state.currentPage, meta.annotationIndex, targetRect);
       await commitAndRefresh('Mover o redimensionar imagen', {
         restoreKind: 'image-last'
@@ -619,12 +901,27 @@ async function textFormatChanged() {
   }
   state.formatBusy = true;
   const block = state.selected.block;
+  const selectedRange = state.textRange;
   try {
-    engine.editTextBlock(state.currentPage, block.index, {
-      text: block.text,
-      ...getTextFormat()
-    });
-    await commitAndRefresh('Cambiar formato de texto', { restoreText: block.text });
+    if (selectedRange?.blockIndex === block.index) {
+      engine.editTextRange(
+        state.currentPage,
+        block.index,
+        selectedRange.start,
+        selectedRange.end,
+        selectedRange.text,
+        getTextFormat()
+      );
+      await commitAndRefresh('Cambiar formato de la selección', {
+        restoreText: selectedRange.text
+      });
+    } else {
+      engine.editTextBlock(state.currentPage, block.index, {
+        text: block.text,
+        ...getTextFormat()
+      });
+      await commitAndRefresh('Cambiar formato de texto', { restoreText: block.text });
+    }
   } catch (error) {
     reportError(error);
   } finally {
@@ -633,6 +930,9 @@ async function textFormatChanged() {
 }
 
 function openExistingTextEditor(block) {
+  state.textRange = null;
+  hideEditRangeButton();
+  clearNativeTextSelection();
   state.selected = {
     kind: 'text',
     rect: block.rect,
@@ -649,11 +949,41 @@ function openExistingTextEditor(block) {
   });
 }
 
-function openNewTextEditor(point) {
+function openSelectedRangeEditor() {
+  const selectedRange = state.textRange;
+  if (!selectedRange || state.busy) {
+    return;
+  }
+  const block = state.pageModel.textBlocks.find((candidate) =>
+    candidate.index === selectedRange.blockIndex
+  );
+  if (!block) {
+    return;
+  }
+  setTextControlsFromBlock(block);
+  showTextContext();
+  openBlockEditor({
+    mode: 'range',
+    blockIndex: block.index,
+    start: selectedRange.start,
+    end: selectedRange.end,
+    rect: block.rect,
+    text: selectedRange.text
+  });
+}
+
+function openNewTextEditor(pointOrAnchor) {
   const bounds = state.pageModel.bounds;
+  const point = Array.isArray(pointOrAnchor)
+    ? pointOrAnchor
+    : [pointOrAnchor.x, pointOrAnchor.y];
   const x = clamp(point[0], bounds[0] + 8, bounds[2] - 70);
   const y = clamp(point[1], bounds[1] + 8, bounds[3] - 24);
-  const width = Math.min(300, Math.max(60, bounds[2] - x - 24));
+  const requestedWidth = Array.isArray(pointOrAnchor) ? null : pointOrAnchor.width;
+  const width = Math.min(
+    requestedWidth || 300,
+    Math.max(60, bounds[2] - x - 24)
+  );
   setDefaultTextControls();
   showTextContext();
   openBlockEditor({
@@ -674,6 +1004,8 @@ function showTextContext() {
 
 function openBlockEditor(editing) {
   state.editing = editing;
+  hideEditRangeButton();
+  clearNativeTextSelection();
   const screen = pdfRectToScreen(editing.rect);
   const editor = elements['block-editor'];
   editor.style.left = `${clamp(screen[0], 0, Math.max(0, state.render.width - 190))}px`;
@@ -687,7 +1019,9 @@ function openBlockEditor(editing) {
   elements['block-editor-text'].select();
   setStatus(editing.mode === 'add'
     ? 'Escribe el texto nuevo y pulsa Aplicar.'
-    : 'Edita el bloque; el contenido inferior se desplazará automáticamente.');
+    : (editing.mode === 'range'
+      ? 'Edita la selección; el párrafo se recompondrá automáticamente.'
+      : 'Edita el párrafo; el contenido inferior se desplazará automáticamente.'));
 }
 
 function syncBlockEditorPreview() {
@@ -725,9 +1059,13 @@ function autoGrowBlockEditor() {
 }
 
 function cancelBlockEditor() {
+  const rangeWasOpen = state.editing?.mode === 'range';
   state.editing = null;
   elements['block-editor'].classList.add('hidden');
   elements['block-editor-text'].value = '';
+  if (rangeWasOpen) {
+    state.textRange = null;
+  }
   if (!state.selected) {
     clearSelection();
   }
@@ -748,6 +1086,18 @@ async function applyBlockEditor() {
     }
     engine.insertTextBlock(state.currentPage, editing.rect, values);
     await commitAndRefresh('Añadir texto', { restoreText: text });
+  } else if (editing.mode === 'range') {
+    engine.editTextRange(
+      state.currentPage,
+      editing.blockIndex,
+      editing.start,
+      editing.end,
+      text,
+      values
+    );
+    await commitAndRefresh(text ? 'Editar selección' : 'Eliminar selección', {
+      restoreText: text || null
+    });
   } else {
     engine.editTextBlock(state.currentPage, editing.blockIndex, values);
     await commitAndRefresh(text ? 'Editar texto' : 'Eliminar texto', {
@@ -761,10 +1111,22 @@ async function deleteSelection() {
     return;
   }
   const selected = state.selected;
+  const selectedRange = state.textRange;
   clearSelection();
   if (selected.kind === 'text') {
-    engine.editTextBlock(state.currentPage, selected.blockIndex, { text: '' });
-    await commitAndRefresh('Eliminar texto');
+    if (selectedRange?.blockIndex === selected.blockIndex) {
+      engine.editTextRange(
+        state.currentPage,
+        selected.blockIndex,
+        selectedRange.start,
+        selectedRange.end,
+        ''
+      );
+      await commitAndRefresh('Eliminar selección');
+    } else {
+      engine.editTextBlock(state.currentPage, selected.blockIndex, { text: '' });
+      await commitAndRefresh('Eliminar texto');
+    }
   } else if (selected.kind === 'native-image') {
     engine.deleteExistingContent(state.currentPage, selected.rect, {
       images: true,
@@ -782,7 +1144,9 @@ async function deleteSelection() {
 }
 
 async function copySelectedText() {
-  const text = state.selected?.kind === 'text' ? state.selected.block.text : '';
+  const text = state.selected?.kind === 'text'
+    ? (state.textRange?.text || state.selected.block.text)
+    : '';
   if (!text) {
     return;
   }
@@ -818,10 +1182,10 @@ async function applyTableProperties() {
   await commitAndRefresh('Actualizar tabla', { restoreKind: 'table-last' });
 }
 
-async function chooseTableTool() {
+async function chooseTableTool(anchor = null) {
   const values = await showFieldsDialog({
     title: 'Crear tabla',
-    confirmText: 'Elegir zona',
+    confirmText: anchor ? 'Insertar' : 'Elegir zona',
     fields: [
       { name: 'rows', label: 'Filas', type: 'number', value: '3', min: '1', max: '30' },
       { name: 'columns', label: 'Columnas', type: 'number', value: '3', min: '1', max: '20' },
@@ -831,6 +1195,24 @@ async function chooseTableTool() {
     grid: true
   });
   if (!values) {
+    hideInsertMenu();
+    return;
+  }
+  if (anchor) {
+    hideInsertMenu();
+    const rowCount = Number(values.rows);
+    const tableHeight = clamp(rowCount * 24, 54, 360);
+    engine.insertTableBlock(
+      state.currentPage,
+      [anchor.x, anchor.y, anchor.x + anchor.width, anchor.y + tableHeight],
+      rowCount,
+      Number(values.columns),
+      {
+        color: hexToPdfColor(values.color),
+        borderWidth: Number(values.borderWidth)
+      }
+    );
+    await commitAndRefresh('Insertar tabla', { restoreKind: 'table-last' });
     return;
   }
   state.pendingTable = {
@@ -851,8 +1233,45 @@ async function handleImageFile(event) {
   }
   try {
     const bytes = await fileToBytes(file);
+    const selectedImage = ['native-image', 'inserted-image'].includes(state.selected?.kind)
+      ? state.selected
+      : null;
+
+    if (selectedImage?.kind === 'native-image') {
+      const targetRect = [...selectedImage.rect];
+      engine.replaceExistingImage(
+        state.currentPage,
+        selectedImage.rect,
+        targetRect,
+        bytes
+      );
+      clearSelection();
+      await commitAndRefresh('Reemplazar imagen original', { restoreKind: 'image-last' });
+      return;
+    }
+
+    if (selectedImage?.kind === 'inserted-image') {
+      const targetRect = [...selectedImage.rect];
+      engine.replaceAnnotationImage(
+        state.currentPage,
+        selectedImage.annotationIndex,
+        targetRect,
+        bytes
+      );
+      clearSelection();
+      await commitAndRefresh('Reemplazar imagen', { restoreKind: 'image-last' });
+      return;
+    }
+
     const dimensions = engine.getImageDimensions(bytes);
     state.pendingImage = { bytes, dimensions };
+    const anchor = state.insertionAnchor;
+    if (anchor) {
+      hideInsertMenu({ preserveAnchor: true });
+      await placePendingImage([anchor.x, anchor.y], anchor);
+      state.insertionAnchor = null;
+      return;
+    }
     setTool('place-image');
     setStatus('Haz clic en la página para colocar la imagen.');
   } catch (error) {
@@ -860,7 +1279,7 @@ async function handleImageFile(event) {
   }
 }
 
-async function placePendingImage(point) {
+async function placePendingImage(point, anchor = null) {
   const pending = state.pendingImage;
   if (!pending) {
     return;
@@ -869,13 +1288,15 @@ async function placePendingImage(point) {
   setTool('edit');
   const bounds = state.pageModel.bounds;
   const aspectRatio = pending.dimensions.height / Math.max(1, pending.dimensions.width);
-  let width = Math.min(180, Math.max(40, bounds[2] - point[0] - 18));
+  let width = anchor
+    ? Math.min(Math.max(80, anchor.width), 240)
+    : Math.min(180, Math.max(40, bounds[2] - point[0] - 18));
   let height = width * aspectRatio;
-  if (point[1] + height > bounds[3] - 18) {
+  if (!anchor && point[1] + height > bounds[3] - 18) {
     height = Math.max(30, bounds[3] - point[1] - 18);
     width = height / Math.max(0.01, aspectRatio);
   }
-  engine.addImage(state.currentPage, [
+  engine.insertImageBlock(state.currentPage, [
     point[0],
     point[1],
     point[0] + width,
@@ -911,9 +1332,10 @@ function restoreSelection(options) {
   let entry = null;
   if (options.restoreText) {
     const prefix = String(options.restoreText).trim().slice(0, 48);
-    entry = state.overlayObjects.find(({ meta }) =>
-      meta.kind === 'text' && meta.block.text.includes(prefix)
+    const block = state.pageModel.textBlocks.find((candidate) =>
+      candidate.text.includes(prefix)
     );
+    return block ? selectTextBlock(block.index) : false;
   } else if (options.restoreKind === 'table-last') {
     entry = state.overlayObjects.findLast(({ meta }) => meta.kind === 'table');
   } else if (options.restoreKind === 'image-last') {
@@ -1053,6 +1475,8 @@ function updateDocumentInfo() {
 
 function setTool(tool) {
   state.tool = tool;
+  elements['text-layer']?.classList.toggle('placement-mode', tool !== 'edit');
+  elements['insertion-layer']?.classList.toggle('disabled', tool !== 'edit');
   if (state.fabricCanvas) {
     state.fabricCanvas.skipTargetFind = tool !== 'edit';
     state.fabricCanvas.selection = false;
@@ -1066,7 +1490,7 @@ function setTool(tool) {
     button.classList.toggle('active', button.dataset.tool === visibleTool);
   }
   const hints = {
-    edit: 'Selecciona un bloque para editarlo.',
+    edit: 'Haz clic en un párrafo, selecciona cualquier texto o usa + para insertar.',
     'add-text': 'Haz clic donde quieras escribir.',
     'place-image': 'Haz clic donde quieras colocar la imagen.',
     table: 'Arrastra para definir el tamaño de la tabla.'
@@ -1131,21 +1555,27 @@ function initializeEventHandlers() {
   elements['save-button'].addEventListener('click', () => postCommand('save'));
 
   elements['edit-text-tool'].addEventListener('click', () => {
+    hideInsertMenu();
     setTool('edit');
     if (state.selected?.kind === 'text') {
       openExistingTextEditor(state.selected.block);
     }
   });
   elements['add-text-tool'].addEventListener('click', () => {
+    hideInsertMenu();
     cancelBlockEditor();
     clearSelection();
     setTool('add-text');
     setStatus('Haz clic en cualquier punto de la página para escribir.');
   });
   elements['image-tool'].addEventListener('click', () => {
+    hideInsertMenu();
     elements['image-file-input'].click();
   });
-  elements['table-tool'].addEventListener('click', chooseTableTool);
+  elements['table-tool'].addEventListener('click', () => {
+    hideInsertMenu();
+    void chooseTableTool();
+  });
   elements['delete-tool'].addEventListener('click', deleteSelection);
   elements['edit-content'].addEventListener('click', () => {
     if (state.selected?.kind === 'text') {
@@ -1160,6 +1590,25 @@ function initializeEventHandlers() {
   elements['text-bold'].addEventListener('click', () => toggleFormatButton(elements['text-bold']));
   elements['text-italic'].addEventListener('click', () => toggleFormatButton(elements['text-italic']));
   elements['apply-table'].addEventListener('click', applyTableProperties);
+  elements['edit-range-button'].addEventListener('click', openSelectedRangeEditor);
+  elements['insert-text-here'].addEventListener('click', () => {
+    const anchor = state.insertionAnchor;
+    hideInsertMenu();
+    if (anchor) {
+      cancelBlockEditor();
+      clearSelection();
+      openNewTextEditor(anchor);
+    }
+  });
+  elements['insert-image-here'].addEventListener('click', () => {
+    elements['image-file-input'].click();
+  });
+  elements['insert-table-here'].addEventListener('click', () => {
+    const anchor = state.insertionAnchor;
+    if (anchor) {
+      void chooseTableTool(anchor);
+    }
+  });
   elements['image-file-input'].addEventListener('change', handleImageFile);
   elements['block-editor-text'].addEventListener('input', autoGrowBlockEditor);
   elements['block-editor-text'].addEventListener('keydown', (event) => {
@@ -1176,6 +1625,20 @@ function initializeEventHandlers() {
 
   elements['dialog-form'].addEventListener('submit', submitDialog);
   elements['dialog-cancel'].addEventListener('click', () => closeDialog(null));
+  elements['page-stage'].addEventListener('pointerdown', (event) => {
+    if (!elements['insert-menu'].contains(event.target) &&
+        !event.target.closest?.('.insertion-marker')) {
+      hideInsertMenu();
+    }
+    if (state.tool === 'edit' && state.selected?.kind === 'text' &&
+        !event.target.closest?.('.text-layer-line, .edit-range-button, .block-editor')) {
+      clearNativeTextSelection();
+      clearSelection();
+    }
+  });
+  document.addEventListener('selectionchange', () => {
+    window.requestAnimationFrame(updateTextRangeFromSelection);
+  });
   document.addEventListener('keydown', keyboardHandler);
   window.addEventListener('resize', debounce(async () => {
     if (state.zoomMode !== 'numeric' && state.pageCount > 0) {
