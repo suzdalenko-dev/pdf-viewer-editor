@@ -61,6 +61,21 @@ export function transformPoint(matrix, point) {
   ];
 }
 
+export function invertMatrix(matrix) {
+  const determinant = matrix[0] * matrix[3] - matrix[1] * matrix[2];
+  if (Math.abs(determinant) < 1e-9) {
+    throw new Error('Cannot invert a singular transformation matrix.');
+  }
+  return [
+    matrix[3] / determinant,
+    -matrix[1] / determinant,
+    -matrix[2] / determinant,
+    matrix[0] / determinant,
+    (matrix[2] * matrix[5] - matrix[3] * matrix[4]) / determinant,
+    (matrix[1] * matrix[4] - matrix[0] * matrix[5]) / determinant
+  ];
+}
+
 export function bytesToBase64(bytes) {
   const chunkSize = 0x8000;
   let binary = '';

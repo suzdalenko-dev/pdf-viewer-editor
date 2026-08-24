@@ -358,6 +358,7 @@ input[type="color"] {
 
 .text-layer-line {
   position: absolute;
+  z-index: 1;
   overflow: hidden;
   color: transparent;
   border-radius: 2px;
@@ -365,7 +366,8 @@ input[type="color"] {
   white-space: pre;
   cursor: text;
   pointer-events: auto;
-  user-select: text;
+  user-select: none;
+  touch-action: none;
   transform-origin: 0 0;
   transition: background-color 80ms ease;
 }
@@ -374,19 +376,9 @@ input[type="color"] {
   background: color-mix(in srgb, var(--focus) 9%, transparent);
 }
 
-.text-layer-line.selected {
-  background: color-mix(in srgb, var(--focus) 12%, transparent);
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--focus) 75%, transparent);
-}
-
-.text-layer-line::selection {
-  color: transparent;
-  background: transparent;
-}
-
 .text-range-highlight {
   position: absolute;
-  z-index: -1;
+  z-index: 0;
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--focus) 82%, transparent);
   border-radius: 1px;

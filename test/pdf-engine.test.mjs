@@ -125,6 +125,11 @@ test('MuPDF engine opens, renders, searches, edits, and serializes a PDF', () =>
     assert.equal(render.width, 300);
     assert.equal(render.height, 400);
     assert.equal(render.pixels.length, 300 * 400 * 4);
+    assert.deepEqual(render.pixelBounds, [0, 0, 300, 400]);
+    assert.deepEqual(
+      render.pageToScreen.map((value) => Object.is(value, -0) ? 0 : value),
+      [1, 0, 0, 1, 0, 0]
+    );
     assert.deepEqual([...engine.renderThumbnail(0).slice(0, 2)], [0xff, 0xd8]);
 
     const originalTextRect = engine.getPageModel(0).textLines[0].rect;
@@ -294,6 +299,29 @@ test('visual paragraph detection avoids one giant selection block', () => {
   }
 });
 
+test('every selectable character keeps its exact global text offset and PDF rectangle', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createMergedParagraphPdf());
+    const model = engine.getPageModel(0);
+    for (const block of model.textBlocks) {
+      for (const line of block.visualLines) {
+        assert.ok(line.characters.length > 0);
+        assert.equal(line.characters.map((character) => character.text).join(''), line.text);
+        assert.equal(line.characters[0].start, line.textStart);
+        assert.equal(line.characters.at(-1).end, line.textEnd);
+        for (const character of line.characters) {
+          assert.equal(block.text.slice(character.start, character.end), character.text);
+          assert.equal(character.rect.length, 4);
+          assert.ok(character.rect.every(Number.isFinite));
+        }
+      }
+    }
+  } finally {
+    engine.destroy();
+  }
+});
+
 test('a selected text range can change content and format with real reflow', () => {
   const engine = new PdfEngine();
   try {
@@ -327,6 +355,36 @@ test('a selected text range can change content and format with real reflow', () 
   }
 });
 
+test('a resized selected range changes the paragraph width used for real reflow', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createFlowingTextPdf());
+    const firstBlock = engine.getPageModel(0).textBlocks.find((block) =>
+      block.text.includes('First paragraph')
+    );
+    const start = firstBlock.text.indexOf('paragraph');
+    const targetRect = [firstBlock.rect[0], firstBlock.rect[1], firstBlock.rect[0] + 105, firstBlock.rect[3]];
+    const result = engine.editTextRange(
+      0,
+      firstBlock.index,
+      start,
+      start + 'paragraph'.length,
+      'selected replacement with more words',
+      { fontFamily: 'Helvetica', fontSize: 12, targetRect }
+    );
+    assert.ok(Math.abs(result.rect[0] - targetRect[0]) < 0.01);
+    assert.ok(Math.abs(result.rect[2] - targetRect[2]) < 0.01);
+    const edited = engine.getPageModel(0).textBlocks.find((block) =>
+      block.text.includes('selected replacement')
+    );
+    assert.ok(edited);
+    assert.ok(edited.rect[2] <= targetRect[2] + 3);
+    assert.ok(edited.visualLines.length >= 2);
+  } finally {
+    engine.destroy();
+  }
+});
+
 test('flow image and table insertion move lower text instead of covering it', () => {
   const engine = new PdfEngine();
   try {
@@ -352,6 +410,35 @@ test('flow image and table insertion move lower text instead of covering it', ()
     );
     assert.ok(tableShiftedSecond.rect[1] > imageShiftedSecond.rect[1]);
     assert.ok(afterTable.annotations.some((annotation) => annotation.table));
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('an inserted image keeps the exact rectangle used by its blue resize frame', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createOnePagePdf());
+    const imageBytes = engine.exportPageImage(0, 'png', 24);
+    const initialRect = [36, 82, 164, 174];
+    engine.addImage(0, initialRect, imageBytes);
+    let image = engine.getPageModel(0).annotations.find((annotation) =>
+      annotation.type === 'Stamp'
+    );
+    assert.ok(image);
+    image.rect.forEach((value, index) => {
+      assert.ok(Math.abs(value - initialRect[index]) < 0.01);
+    });
+
+    const resizedRect = [51, 97, 238, 231];
+    engine.updateAnnotationRect(0, image.index, resizedRect);
+    image = engine.getPageModel(0).annotations.find((annotation) =>
+      annotation.type === 'Stamp'
+    );
+    assert.ok(image);
+    image.rect.forEach((value, index) => {
+      assert.ok(Math.abs(value - resizedRect[index]) < 0.01);
+    });
   } finally {
     engine.destroy();
   }
@@ -450,6 +537,80 @@ test('v0.0.7 table metadata keeps the blue selection rectangle equal to the tabl
     assert.deepEqual(table.rect.map((value) => Math.round(value)), resizedRect);
     assert.equal(table.table.rows, 4);
     assert.equal(table.table.columns, 5);
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('resizing a table moves lower text by the table height change', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createFlowingTextPdf());
+    engine.insertTableBlock(0, [30, 90, 270, 150], 3, 4);
+    const before = engine.getPageModel(0);
+    const table = before.annotations.find((annotation) => annotation.table);
+    const secondBefore = before.textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(table);
+    assert.ok(secondBefore);
+
+    const resizedRect = [table.rect[0], table.rect[1], table.rect[2], table.rect[3] + 48];
+    const result = engine.updateTable(
+      0,
+      table.index,
+      resizedRect,
+      table.table.rows,
+      table.table.columns
+    );
+    assert.ok(Math.abs(result.delta - 48) < 0.01);
+    assert.ok(result.shiftedBlocks > 0);
+    const after = engine.getPageModel(0);
+    const secondAfter = after.textLines.find((line) =>
+      line.text.includes('Second paragraph')
+    );
+    assert.ok(
+      secondAfter.rect[1] > secondBefore.rect[1] + 47,
+      JSON.stringify({ before: secondBefore.rect, after: secondAfter.rect, result })
+    );
+  } finally {
+    engine.destroy();
+  }
+});
+
+test('legacy tables without stored rect recover the exact grid geometry from ink strokes', () => {
+  const engine = new PdfEngine();
+  try {
+    engine.load(createOnePagePdf());
+    const exactRect = [41, 93, 247, 211];
+    engine.addTable(0, exactRect, 3, 5, { borderWidth: 4 });
+
+    const page = engine.pdfDocument.loadPage(0);
+    const annotations = page.getAnnotations();
+    try {
+      const annotation = annotations.find((candidate) => candidate.getSubject() === 'PDF Viewer Editor Table');
+      assert.ok(annotation);
+      annotation.setContents(JSON.stringify({
+        type: 'table',
+        rows: 3,
+        columns: 5,
+        color: [0, 0, 0],
+        borderWidth: 4
+      }));
+      annotation.update();
+      page.update();
+    } finally {
+      for (const annotation of annotations) {
+        annotation.destroy();
+      }
+      page.destroy();
+    }
+
+    const legacyTable = engine.getPageModel(0).annotations.find((annotation) => annotation.table);
+    assert.ok(legacyTable);
+    legacyTable.rect.forEach((value, index) => {
+      assert.ok(Math.abs(value - exactRect[index]) < 0.01);
+    });
   } finally {
     engine.destroy();
   }

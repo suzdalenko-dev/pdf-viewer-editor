@@ -14,7 +14,7 @@ La versión `0.0.7` se concentra en una tarea: **hacer que el marco azul sea el 
 - Editar un párrafo completo con `Editar contenido`; el marco azul coincide con el área real y se puede redimensionar.
 - Mover o redimensionar un bloque de texto con `Mover / redimensionar bloque`.
 - Al cambiar la anchura de un bloque, el texto se recompone dentro del nuevo ancho.
-- El editor azul de texto permite redimensionar anchura y altura; al aplicar, esa geometría se convierte en la nueva zona real del texto.
+- El editor azul conserva inicialmente la geometría exacta de la selección y permite redimensionar anchura y altura; la anchura controla el reflow y la altura final se calcula según el contenido.
 - Añadir texto en cualquier punto de la página.
 - Cambiar o borrar el contenido real de un bloque.
 - Cambiar Helvetica/Times/Courier, tamaño, color, negrita, cursiva y alineación.
@@ -32,6 +32,7 @@ Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula l
 - Insertar PNG, JPEG, WebP, BMP, GIF o TIFF en cualquier posición.
 - Insertar una imagen entre párrafos y desplazar automáticamente el texto inferior.
 - Mover y redimensionar imágenes insertadas.
+- El marco de una imagen insertada usa la misma transformación exacta que el píxel renderizado del PDF.
 - Eliminar imágenes insertadas.
 - Seleccionar y eliminar permanentemente una imagen original del PDF.
 
@@ -42,7 +43,9 @@ Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula l
 - Dibujar su zona directamente sobre la página.
 - Seleccionar una tabla creada, moverla y redimensionarla con un marco que coincide exactamente con la cuadrícula.
 - La geometría exacta de cada tabla se conserva en sus metadatos, evitando que el marco de selección se desplace respecto a la cuadrícula.
+- Las tablas creadas por versiones anteriores recuperan esa geometría directamente desde sus trazos PDF.
 - El marco de edición de la tabla comparte el mismo sistema de coordenadas que el PDF renderizado.
+- Al cambiar la altura de una tabla, el texto posterior del mismo flujo se desplaza para conservar el espacio.
 - Cambiar posteriormente filas, columnas, color y grosor de línea.
 - Eliminar la tabla completa con `Eliminar` o la tecla `Delete`.
 - Añadir texto editable independiente dentro de cada celda con `Añadir texto`.

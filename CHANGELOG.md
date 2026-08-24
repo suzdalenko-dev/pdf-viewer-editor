@@ -7,11 +7,15 @@ Todos los cambios relevantes de este proyecto se documentan aquí.
 ### Corregido
 
 - El marco azul de edición de texto pasa a ser el área real del contenido editable.
-- El editor de texto se puede redimensionar en anchura y altura; el reflow usa esa anchura al aplicar.
-- La selección parcial usa el rectángulo exacto de los caracteres seleccionados.
-- Las tablas guardan y recuperan su rectángulo exacto, evitando que el marco Fabric quede desplazado respecto a la cuadrícula.
-- Las capas PDF, texto y Fabric se fuerzan al mismo origen de coordenadas.
-- Se mantiene el icono `images/icon.png` dentro del VSIX y se añade un indicador visible `v0.0.7` para comprobar la versión instalada.
+- El editor deja de autoagrandarse al abrir: primero coincide con la selección y solo cambia de tamaño cuando el usuario lo redimensiona.
+- La selección parcial se calcula por impacto contra los rectángulos y offsets reales de cada carácter, sin depender del layout de texto del navegador.
+- El editor de texto se puede redimensionar en anchura y altura; su anchura pasa al motor y controla el reflow al aplicar.
+- PDF, texto, imágenes, tablas y Fabric comparten la transformación exacta del pixmap renderizado, incluido su origen de píxel.
+- Las tablas guardan y recuperan su rectángulo exacto; las tablas antiguas lo reconstruyen desde sus trazos Ink.
+- Al aumentar o reducir la altura de una tabla, el texto posterior del mismo flujo se desplaza en la misma medida.
+- El marco temporal de redimensionado se elimina al cancelar, cambiar de herramienta o seleccionar otro objeto.
+- Nuevo icono `images/icon.png` de 256 × 256 en el estilo visual azul marino del Marketplace de Alexey SuzDalenko.
+- La barra de edición muestra `v0.0.7` para comprobar la versión instalada.
 
 ## 0.0.6 - 2026-08-24
 

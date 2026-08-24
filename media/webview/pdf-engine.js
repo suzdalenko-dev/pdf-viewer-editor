@@ -120,11 +120,14 @@ export class PdfEngine {
         showExtras
       );
       try {
+        const pixelBounds = [...pixmap.getBounds()];
         return {
           width: pixmap.getWidth(),
           height: pixmap.getHeight(),
           pixels: new Uint8ClampedArray(pixmap.getPixels()).slice(),
           bounds: [...bounds],
+          pixelBounds,
+          pageToScreen: [scale, 0, 0, scale, -pixelBounds[0], -pixelBounds[1]],
           scale
         };
       } finally {
@@ -204,14 +207,18 @@ export class PdfEngine {
         const contents = safeCall(() => annotation.getContents(), '');
         const subject = safeCall(() => annotation.getSubject(), '');
         const table = parseTableMetadata(type, subject, contents);
-        let rect = table?.rect ? [...table.rect] : null;
-        if (!rect && table) {
-          rect = safeCall(() => [...annotation.getBounds()], null);
-        }
-        if (!rect) {
-          rect = annotation.hasRect()
-            ? [...annotation.getRect()]
-            : [...annotation.getBounds()];
+        const annotationRect = annotation.hasRect()
+          ? [...annotation.getRect()]
+          : [...annotation.getBounds()];
+        let rect = [...annotationRect];
+        if (table) {
+          rect = table.rect
+            ? [...table.rect]
+            : rectFromInkStrokes(
+                safeCall(() => annotation.getInkList(), []),
+                annotationRect
+              );
+          table.rect = [...rect];
         }
 
         let defaultAppearance = null;
@@ -419,14 +426,27 @@ export class PdfEngine {
       { text: block.text.slice(rangeEnd), values: originalValues }
     ].filter((run) => run.text.length > 0);
     const resultingText = runs.map((run) => run.text).join('');
+    const requested = resultingText && Array.isArray(properties.targetRect)
+      ? normalizeRect(properties.targetRect)
+      : [...block.rect];
+    const minimumWidth = Math.max(
+      24,
+      Number(replacementValues.fontSize || block.font?.size || 12) * 2
+    );
+    const layoutRect = [
+      requested[0],
+      requested[1],
+      Math.max(requested[0] + minimumWidth, requested[2]),
+      requested[1]
+    ];
     const layout = layoutRichTextBlock(
-      block.rect,
+      layoutRect,
       runs,
       block.metrics,
       replacementValues.alignment
     );
-    const oldHeight = Math.max(0, block.rect[3] - block.rect[1]);
-    const delta = layout.height - oldHeight;
+    const newBottom = resultingText ? layoutRect[1] + layout.height : block.rect[1];
+    const delta = newBottom - block.rect[3];
     const followingBlocks = findFollowingBlocks(model.textBlocks, block.rect, block.index);
     const shiftedEntries = followingBlocks.flatMap((followingBlock) =>
       textEntriesForExistingBlock(followingBlock, delta)
@@ -445,7 +465,7 @@ export class PdfEngine {
           ? [...layout.entries, ...shiftedEntries]
           : shiftedEntries;
         const maximumBottom = Math.max(
-          resultingText ? block.rect[1] + layout.height : block.rect[1],
+          resultingText ? newBottom : block.rect[1],
           ...followingBlocks.map((candidate) => candidate.rect[3] + delta)
         );
         this.extendPageToFit(page, maximumBottom);
@@ -457,7 +477,9 @@ export class PdfEngine {
       delta,
       shiftedBlocks: followingBlocks.length,
       text: resultingText,
-      rect: [block.rect[0], block.rect[1], block.rect[2], block.rect[1] + layout.height]
+      rect: resultingText
+        ? [layoutRect[0], layoutRect[1], layoutRect[2], newBottom]
+        : [block.rect[0], block.rect[1], block.rect[2], block.rect[1]]
     };
   }
 
@@ -679,6 +701,29 @@ export class PdfEngine {
   }
 
   updateTable(pageIndex, annotationIndex, rect, rows, columns, properties = {}) {
+    const model = this.getPageModel(pageIndex);
+    const sourceTable = model.annotations.find((annotation) =>
+      annotation.index === annotationIndex && annotation.table
+    );
+    if (!sourceTable) {
+      throw new Error('The selected table no longer exists.');
+    }
+    const targetRect = normalizeRect(rect);
+    const horizontalFlowRect = unionRects([sourceTable.rect, targetRect]);
+    const flowRect = [
+      horizontalFlowRect[0],
+      sourceTable.rect[1],
+      horizontalFlowRect[2],
+      sourceTable.rect[3]
+    ];
+    const delta = targetRect[3] - sourceTable.rect[3];
+    const followingBlocks = Math.abs(delta) > 0.01
+      ? findFollowingBlocks(model.textBlocks, flowRect, -1)
+      : [];
+    const shiftedEntries = followingBlocks.flatMap((block) =>
+      textEntriesForExistingBlock(block, delta)
+    );
+
     this.withOperation('Edit table', () => {
       this.withPage(pageIndex, (page) => {
         const annotations = page.getAnnotations();
@@ -695,17 +740,37 @@ export class PdfEngine {
           if (!metadata) {
             throw new Error('The selected object is not an editable table.');
           }
+          for (const block of followingBlocks) {
+            this.removeContentInRect(page, expandRect(block.rect, 0.35), {
+              images: false,
+              lineArt: false,
+              text: true
+            });
+          }
           page.deleteAnnotation(annotation);
-          this.createTableAnnotation(page, rect, rows, columns, {
+          this.createTableAnnotation(page, targetRect, rows, columns, {
             color: properties.color || metadata.color,
             borderWidth: properties.borderWidth || metadata.borderWidth
           });
+          if (shiftedEntries.length > 0) {
+            this.extendPageToFit(page, Math.max(
+              targetRect[3],
+              ...followingBlocks.map((block) => block.rect[3] + delta)
+            ));
+            this.appendStaticText(page, shiftedEntries);
+          }
           page.update();
         } finally {
           destroyAll(annotations);
         }
       });
     });
+
+    return {
+      delta,
+      shiftedBlocks: followingBlocks.length,
+      rect: targetRect
+    };
   }
 
   createTableAnnotation(page, rect, rows, columns, properties = {}) {
@@ -1624,8 +1689,14 @@ function extractTextBlocks(structuredText) {
         currentLine.styles.set(styleKey, weightedStyle);
         const characterText = String(character);
         const characterRect = quadToRect(quad);
+        const characterStart = currentLine.text.length;
         currentLine.text += characterText;
-        currentLine.characters.push({ text: characterText, rect: characterRect });
+        currentLine.characters.push({
+          text: characterText,
+          rect: characterRect,
+          start: characterStart,
+          end: currentLine.text.length
+        });
         currentLine.baseline ||= [Number(origin[0] || 0), Number(origin[1] || 0)];
         currentLine.rect = unionRects([
           currentLine.rect,
@@ -1756,6 +1827,7 @@ function buildVisualLines(lines) {
     let previous = null;
     for (const fragment of row.fragments) {
       if (previous && needsVisualSpace(previous, fragment)) {
+        const start = text.length;
         text += ' ';
         characters.push({
           text: ' ',
@@ -1764,11 +1836,18 @@ function buildVisualLines(lines) {
             Math.min(previous.rect[1], fragment.rect[1]),
             fragment.rect[0],
             Math.max(previous.rect[3], fragment.rect[3])
-          ]
+          ],
+          start,
+          end: text.length
         });
       }
+      const fragmentStart = text.length;
       text += fragment.text;
-      characters.push(...(fragment.characters || []));
+      characters.push(...(fragment.characters || []).map((character) => ({
+        ...character,
+        start: fragmentStart + Number(character.start || 0),
+        end: fragmentStart + Number(character.end ?? character.text?.length ?? 0)
+      })));
       previous = fragment;
     }
     const style = dominantLineStyle(row.fragments);
@@ -1972,18 +2051,29 @@ function decorateParagraphLines(paragraphLines, blockIndex) {
   const lines = [];
 
   for (const sourceLine of paragraphLines) {
-    const lineText = String(sourceLine.text || '').trim();
+    const rawText = String(sourceLine.text || '');
+    const lineText = rawText.trim();
     if (!lineText) {
       continue;
     }
+    const leadingTrim = rawText.length - rawText.trimStart().length;
+    const rawEnd = leadingTrim + lineText.length;
     const separator = text ? ' ' : '';
     const start = text.length + separator.length;
     text += separator + lineText;
     const end = text.length;
     const lineIndex = lines.length;
+    const characters = (sourceLine.characters || [])
+      .filter((character) => character.end > leadingTrim && character.start < rawEnd)
+      .map((character) => ({
+        ...character,
+        start: start + Math.max(0, character.start - leadingTrim),
+        end: start + Math.min(lineText.length, character.end - leadingTrim)
+      }));
     lines.push({
       ...sourceLine,
       text: lineText,
+      characters,
       blockIndex,
       lineIndex,
       start,
@@ -2342,18 +2432,42 @@ function parseTableMetadata(type, subject, contents) {
     if (value?.type !== 'table') {
       return null;
     }
+    const metadataRect = Array.isArray(value.rect) && value.rect.length === 4
+      ? value.rect.map(Number)
+      : null;
     return {
       rows: Math.max(1, Math.min(30, Math.round(Number(value.rows) || 2))),
       columns: Math.max(1, Math.min(20, Math.round(Number(value.columns) || 2))),
       color: normalizeColor(value.color, [0, 0, 0]),
       borderWidth: Math.max(0.25, Math.min(8, Number(value.borderWidth || 1))),
-      rect: Array.isArray(value.rect) && value.rect.length === 4
-        ? normalizeRect(value.rect.map(Number))
+      rect: metadataRect?.every(Number.isFinite)
+        ? normalizeRect(metadataRect)
         : null
     };
   } catch {
     return null;
   }
+}
+
+function rectFromInkStrokes(strokes, fallback) {
+  const points = [];
+  for (const stroke of Array.isArray(strokes) ? strokes : []) {
+    for (const point of Array.isArray(stroke) ? stroke : []) {
+      if (Array.isArray(point) && point.length >= 2 &&
+          Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))) {
+        points.push([Number(point[0]), Number(point[1])]);
+      }
+    }
+  }
+  if (points.length === 0) {
+    return normalizeRect(fallback);
+  }
+  return [
+    Math.min(...points.map((point) => point[0])),
+    Math.min(...points.map((point) => point[1])),
+    Math.max(...points.map((point) => point[0])),
+    Math.max(...points.map((point) => point[1]))
+  ];
 }
 
 function textMatrixForPage(transform, baseline) {

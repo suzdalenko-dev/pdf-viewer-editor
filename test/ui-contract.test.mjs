@@ -15,9 +15,13 @@ test('default zoom is 100 percent throughout the shipped extension', () => {
   assert.match(provider, /configuration\.get\('defaultZoom', 1\)/);
 });
 
-test('single-click text selection uses a native line range instead of paragraph-wide highlight', () => {
-  assert.match(main, /range\.selectNodeContents\(line\)/);
-  assert.doesNotMatch(main, /line\.classList\.toggle\('selected', Number\(line\.dataset\.blockIndex\) === blockIndex\)/);
+test('text selection hit-tests extracted PDF characters instead of browser text layout', () => {
+  assert.match(main, /textOffsetAtScreenPoint/);
+  assert.match(main, /closest\.character\.start/);
+  assert.match(main, /closest\.character\.end/);
+  assert.match(main, /character\.end > selectedRange\.start/);
+  assert.doesNotMatch(main, /range\.selectNodeContents/);
+  assert.doesNotMatch(main, /selectionchange/);
 });
 
 test('save writes the custom document and sends visible acknowledgement', () => {
@@ -35,6 +39,8 @@ test('marketplace icon metadata is present', () => {
 
 test('v0.0.7 keeps overlays in one coordinate system and supports text resizing', () => {
   assert.match(main, /enableRetinaScaling: false/);
+  assert.match(engine, /pageToScreen/);
+  assert.match(main, /invertMatrix\(state\.render\.pageToScreen\)/);
   assert.match(main, /object\.width \|\| 0/);
   assert.match(main, /resize-text-block/);
   assert.match(main, /engine\.resizeTextBlock/);
@@ -58,5 +64,13 @@ test('v0.0.7 uses the blue editor box as the real text target rectangle', () => 
 test('v0.0.7 stores exact table geometry and uses it for the overlay', () => {
   assert.doesNotMatch(engine, /annotation\.setRect\(normalizedRect\)/);
   assert.match(engine, /rect: normalizedRect/);
-  assert.match(engine, /table\?\.rect/);
+  assert.match(engine, /table\.rect/);
+  assert.match(engine, /rectFromInkStrokes/);
+});
+
+test('range editing preserves the exact selected box and turns manual width changes into reflow', () => {
+  assert.match(main, /initialRect: \[\.\.\.editing\.rect\]/);
+  assert.match(main, /editedWidth - initialWidth/);
+  assert.match(main, /targetRect:/);
+  assert.doesNotMatch(main, /textarea\.scrollHeight/);
 });
