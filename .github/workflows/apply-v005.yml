@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/v0.0.5-finalize-extension-v2
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
