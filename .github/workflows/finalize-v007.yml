@@ -34,6 +34,7 @@ jobs:
             scripts/v007-part2.py \
             scripts/v007-part3.py \
             scripts/v007-part4.py \
+            scripts/v007-part5.py \
             > /tmp/apply-v007.py
           python - <<'PY'
           from pathlib import Path
@@ -81,9 +82,10 @@ jobs:
           for (const token of ['syncEditingRectFromEditor', 'targetRect: editing.rect', "originX: 'left'", 'syncFabricCanvasGeometry']) {
             if (!main.includes(token)) throw new Error(`Missing main.js contract: ${token}`);
           }
-          for (const token of ['annotation.setRect(normalizedRect)', 'rect: normalizedRect', 'table?.rect']) {
+          for (const token of ['rect: normalizedRect', 'table?.rect']) {
             if (!engine.includes(token)) throw new Error(`Missing pdf-engine.js contract: ${token}`);
           }
+          if (engine.includes('annotation.setRect(normalizedRect)')) throw new Error('Ink annotations must not use setRect');
           if (!styles.includes('resize: both')) throw new Error('Resizable blue text box missing');
           if (!html.includes('v0.0.7')) throw new Error('Visible v0.0.7 badge missing');
           NODE
@@ -110,6 +112,7 @@ jobs:
             scripts/v007-part2.py \
             scripts/v007-part3.py \
             scripts/v007-part4.py \
+            scripts/v007-part5.py \
             .github/workflows/finalize-v007.yml \
             pdf-viewer-editor-0.0.7.vsix
           git config user.name 'github-actions[bot]'
