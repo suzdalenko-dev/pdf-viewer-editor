@@ -2,15 +2,18 @@
 
 Editor visual de PDF gratuito para Visual Studio Code, construido en JavaScript con MuPDF.js y Fabric.js.
 
-La versión `0.0.4` se concentra en una tarea: **seleccionar y editar directamente el contenido visible de forma natural**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
+La versión `0.0.6` se concentra en una tarea: **seleccionar y editar directamente el contenido visible de forma natural, con geometría alineada al PDF**. Abre el PDF como una pestaña editable de VS Code y participa en el ciclo normal de Guardar, Guardar como, Deshacer, Rehacer, recuperación y copias de seguridad.
 
 > Conserva una copia del documento original cuando trabajes con archivos importantes. Un PDF describe objetos colocados en coordenadas y no siempre contiene párrafos equivalentes a los de Word; esta extensión reconstruye bloques editables a partir de la estructura visual detectada por MuPDF.
 
 ## Edición de texto con reflujo
 
-- Hacer clic sobre cualquier línea para seleccionar solo su párrafo visual, sin rectángulos gigantes.
+- Hacer clic sobre una línea selecciona solo esa línea; arrastrar selecciona exactamente palabras o frases, sin rectángulos gigantes.
+- La selección visual usa los rectángulos de caracteres extraídos del PDF para ajustarse al contenido real.
 - Arrastrar sobre una palabra o frase y editar, borrar, copiar o cambiar su formato.
 - Editar un párrafo completo con `Editar contenido`.
+- Mover o redimensionar un bloque de texto con `Mover / redimensionar`.
+- Al cambiar la anchura de un bloque, el texto se recompone dentro del nuevo ancho.
 - Añadir texto en cualquier punto de la página.
 - Cambiar o borrar el contenido real de un bloque.
 - Cambiar Helvetica/Times/Courier, tamaño, color, negrita, cursiva y alineación.
@@ -37,6 +40,7 @@ Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula l
 - Insertar la tabla entre párrafos sin cubrir el contenido existente.
 - Dibujar su zona directamente sobre la página.
 - Seleccionar una tabla creada, moverla y redimensionarla.
+- El marco de edición de la tabla comparte el mismo sistema de coordenadas que el PDF renderizado.
 - Cambiar posteriormente filas, columnas, color y grosor de línea.
 - Eliminar la tabla completa con `Eliminar` o la tecla `Delete`.
 - Añadir texto editable independiente dentro de cada celda con `Añadir texto`.
@@ -45,6 +49,7 @@ Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula l
 
 - Renderizado local de alta calidad con MuPDF.js/WASM.
 - Miniaturas, navegación, zoom de 25 % a 500 %, ajustar página y ajustar ancho.
+- Zoom inicial al 100 %.
 - Búsqueda en todo el documento con resaltado de resultados.
 - Copiar el contenido del bloque seleccionado.
 - Apertura de PDFs protegidos mediante contraseña; la contraseña solo vive en la memoria del webview.
@@ -57,12 +62,13 @@ Al aplicar una edición, MuPDF elimina físicamente el texto anterior, calcula l
 
 1. Abre un archivo `.pdf` en VS Code.
 2. Si se abre otro visor, usa el menú contextual y elige **Open with PDF Viewer & Editor**.
-3. Haz clic en una línea para seleccionar su párrafo, o arrastra sobre cualquier palabra o frase.
+3. Haz clic en una línea para seleccionar esa línea, o arrastra sobre cualquier palabra o frase.
 4. Pulsa `Editar selección` o `Editar contenido`; al aplicar, el texto inferior se recoloca.
-5. Cambia el tamaño de fuente: la selección se recompone y el contenido inferior se desplaza.
-6. Usa el punto `+` entre párrafos para insertar texto, imagen o tabla sin solapar nada.
-7. También puedes usar `Añadir texto`, `Imagen` o `Tabla` para colocar contenido libremente.
-8. Guarda con `Ctrl/Cmd+S`.
+5. Usa `Mover / redimensionar` para cambiar la posición o anchura del bloque de texto.
+6. Cambia el tamaño de fuente: la selección se recompone y el contenido inferior se desplaza.
+7. Usa el punto `+` entre párrafos para insertar texto, imagen o tabla sin solapar nada.
+8. También puedes usar `Añadir texto`, `Imagen` o `Tabla` para colocar contenido libremente.
+9. Guarda con `Ctrl/Cmd+S`.
 
 | Acción | Atajo |
 |---|---|
@@ -103,7 +109,7 @@ npm run package
 | `npm run typecheck` | Comprueba el host de la extensión con TypeScript `checkJs` |
 | `npm test` | Ejecuta pruebas unitarias y de integración contra MuPDF/WASM |
 | `npm run check` | Ejecuta lint, typecheck y pruebas |
-| `npm run package` | Genera `pdf-viewer-editor-0.0.4.vsix` |
+| `npm run package` | Genera `pdf-viewer-editor-0.0.6.vsix` |
 
 El script `prepare` copia MuPDF y Fabric a `media/vendor`; esa carpeta se genera y no se versiona.
 

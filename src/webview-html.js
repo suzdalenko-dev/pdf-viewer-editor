@@ -48,8 +48,8 @@ function getWebviewHtml(webview, extensionUri) {
           <option value="width">Ajustar ancho</option>
           <option value="0.5">50%</option>
           <option value="0.75">75%</option>
-          <option value="1">100%</option>
-          <option value="1.25" selected>125%</option>
+          <option value="1" selected>100%</option>
+          <option value="1.25">125%</option>
           <option value="1.5">150%</option>
           <option value="2">200%</option>
           <option value="3">300%</option>
@@ -81,6 +81,7 @@ function getWebviewHtml(webview, extensionUri) {
     <section id="selection-context" class="selection-context hidden" aria-label="Propiedades de la selección">
       <div id="text-context" class="context-row hidden">
         <button id="edit-content" class="primary-button">Editar contenido</button>
+        <button id="resize-text-block">Mover / redimensionar</button>
         <button id="copy-text">Copiar</button>
         <label>Fuente
           <select id="text-font-family">

@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+import { URL } from 'node:url';
+
+const main = fs.readFileSync(new URL('../media/webview/main.js', import.meta.url), 'utf8');
+const provider = fs.readFileSync(new URL('../src/pdf-editor-provider.js', import.meta.url), 'utf8');
+const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+test('default zoom is 100 percent throughout the shipped extension', () => {
+  assert.equal(pkg.contributes.configuration.properties['pdfViewerEditor.defaultZoom'].default, 1);
+  assert.match(main, /zoom: 1,/);
+  assert.match(provider, /configuration\.get\('defaultZoom', 1\)/);
+});
+
+test('single-click text selection uses a native line range instead of paragraph-wide highlight', () => {
+  assert.match(main, /range\.selectNodeContents\(line\)/);
+  assert.doesNotMatch(main, /line\.classList\.toggle\('selected', Number\(line\.dataset\.blockIndex\) === blockIndex\)/);
+});
+
+test('save writes the custom document and sends visible acknowledgement', () => {
+  assert.match(provider, /workspace\.fs\.writeFile\(document\.uri, document\.data\)/);
+  assert.match(provider, /type: 'document-saved'/);
+  assert.match(main, /PDF guardado correctamente/);
+});
+
+test('marketplace icon metadata is present', () => {
+  assert.equal(pkg.icon, 'images/icon.png');
+  assert.equal(fs.existsSync(new URL('../images/icon.png', import.meta.url)), true);
+  assert.equal(pkg.version, '0.0.6');
+});
+
+
+test('v0.0.6 keeps overlays in one coordinate system and supports text resizing', () => {
+  assert.match(main, /enableRetinaScaling: false/);
+  assert.match(main, /object\.getBoundingRect\(\)/);
+  assert.match(main, /resize-text-block/);
+  assert.match(main, /engine\.resizeTextBlock/);
+});
+
+test('v0.0.6 renders text selection from extracted PDF character rectangles', () => {
+  const engine = fs.readFileSync(new URL('../media/webview/pdf-engine.js', import.meta.url), 'utf8');
+  assert.match(engine, /characters: currentLine\.characters/);
+  assert.match(main, /text-range-highlight/);
+  assert.match(main, /selectedCharacters/);
+});
