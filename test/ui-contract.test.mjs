@@ -3,74 +3,67 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { URL } from 'node:url';
 
-const main = fs.readFileSync(new URL('../media/webview/main.js', import.meta.url), 'utf8');
-const provider = fs.readFileSync(new URL('../src/pdf-editor-provider.js', import.meta.url), 'utf8');
-const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-const styles = fs.readFileSync(new URL('../media/webview/styles.css', import.meta.url), 'utf8');
-const engine = fs.readFileSync(new URL('../media/webview/pdf-engine.js', import.meta.url), 'utf8');
+const read = (relativePath) => fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+const main = read('../media/webview/main.js');
+const engine = read('../media/webview/pdf-engine.js');
+const provider = read('../src/pdf-editor-provider.js');
+const html = read('../src/webview-html.js');
+const vendorScript = read('../scripts/copy-vendor.js');
+const pkg = JSON.parse(read('../package.json'));
 
-test('default zoom is 100 percent throughout the shipped extension', () => {
+test('v0.0.8 metadata describes the read-only viewer', () => {
+  assert.equal(pkg.version, '0.0.8');
+  assert.equal(pkg.displayName, 'PDF Viewer (Read Only)');
+  assert.match(pkg.description, /read-only PDF viewer/i);
+  assert.equal(pkg.icon, 'images/icon.png');
+  assert.equal(fs.existsSync(new URL('../images/icon.png', import.meta.url)), true);
+  assert.equal(
+    pkg.contributes.configuration.properties['pdfViewerEditor.defaultSaveMode'],
+    undefined
+  );
+});
+
+test('default zoom remains 100 percent throughout the shipped viewer', () => {
   assert.equal(pkg.contributes.configuration.properties['pdfViewerEditor.defaultZoom'].default, 1);
   assert.match(main, /zoom: 1,/);
   assert.match(provider, /configuration\.get\('defaultZoom', 1\)/);
 });
 
-test('text selection hit-tests extracted PDF characters instead of browser text layout', () => {
-  assert.match(main, /textOffsetAtScreenPoint/);
-  assert.match(main, /closest\.character\.start/);
-  assert.match(main, /closest\.character\.end/);
-  assert.match(main, /character\.end > selectedRange\.start/);
-  assert.doesNotMatch(main, /range\.selectNodeContents/);
-  assert.doesNotMatch(main, /selectionchange/);
+test('extension host is a read-only custom editor provider with no write path', () => {
+  assert.match(provider, /class PdfViewerProvider/);
+  assert.doesNotMatch(provider, /workspace\.fs\.writeFile/);
+  assert.doesNotMatch(provider, /onDidChangeCustomDocument/);
+  assert.doesNotMatch(provider, /async saveCustomDocument/);
+  assert.doesNotMatch(provider, /async saveCustomDocumentAs/);
+  assert.doesNotMatch(provider, /async backupCustomDocument/);
+  assert.doesNotMatch(provider, /case 'document-edited'/);
+  assert.doesNotMatch(provider, /case 'export'/);
 });
 
-test('save writes the custom document and sends visible acknowledgement', () => {
-  assert.match(provider, /workspace\.fs\.writeFile\(document\.uri, document\.data\)/);
-  assert.match(provider, /type: 'document-saved'/);
-  assert.match(main, /PDF guardado correctamente/);
+test('webview contains viewing controls and no editing controls', () => {
+  assert.match(html, /Solo lectura/);
+  assert.match(html, /v0\.0\.8/);
+  assert.match(html, /id="search-input"/);
+  assert.match(html, /id="zoom-select"/);
+  assert.match(html, /id="thumbnail-list"/);
+  assert.doesNotMatch(html, /id="save-button"/);
+  assert.doesNotMatch(html, /id="undo-button"/);
+  assert.doesNotMatch(html, /id="editor-canvas"/);
+  assert.doesNotMatch(html, /fabric\.min\.js/);
 });
 
-test('marketplace icon metadata is present', () => {
-  assert.equal(pkg.icon, 'images/icon.png');
-  assert.equal(fs.existsSync(new URL('../images/icon.png', import.meta.url)), true);
-  assert.equal(pkg.version, '0.0.7');
+test('webview and engine do not send or expose document mutations', () => {
+  assert.doesNotMatch(main, /document-edited/);
+  assert.doesNotMatch(main, /postCommand/);
+  assert.doesNotMatch(main, /\.serialize\(/);
+  assert.doesNotMatch(main, /\bfabric\b/i);
+  assert.doesNotMatch(engine, /enableJournal\(/);
+  assert.doesNotMatch(engine, /saveToBuffer\(/);
+  assert.doesNotMatch(engine, /beginOperation\(/);
+  assert.doesNotMatch(engine, /createAnnotation\(/);
 });
 
-
-test('v0.0.7 keeps overlays in one coordinate system and supports text resizing', () => {
-  assert.match(main, /enableRetinaScaling: false/);
-  assert.match(engine, /pageToScreen/);
-  assert.match(main, /invertMatrix\(state\.render\.pageToScreen\)/);
-  assert.match(main, /object\.width \|\| 0/);
-  assert.match(main, /resize-text-block/);
-  assert.match(main, /engine\.resizeTextBlock/);
-});
-
-test('v0.0.7 renders text selection from extracted PDF character rectangles', () => {
-  assert.match(engine, /characters: currentLine\.characters/);
-  assert.match(main, /text-range-highlight/);
-  assert.match(main, /selectedCharacters/);
-});
-
-
-test('v0.0.7 uses the blue editor box as the real text target rectangle', () => {
-  assert.match(main, /new window\.ResizeObserver/);
-  assert.match(main, /syncEditingRectFromEditor/);
-  assert.match(main, /targetRect: editing\.rect/);
-  assert.match(styles, /resize: both/);
-  assert.match(styles, /border: 2px solid var\(--focus\)/);
-});
-
-test('v0.0.7 stores exact table geometry and uses it for the overlay', () => {
-  assert.doesNotMatch(engine, /annotation\.setRect\(normalizedRect\)/);
-  assert.match(engine, /rect: normalizedRect/);
-  assert.match(engine, /table\.rect/);
-  assert.match(engine, /rectFromInkStrokes/);
-});
-
-test('range editing preserves the exact selected box and turns manual width changes into reflow', () => {
-  assert.match(main, /initialRect: \[\.\.\.editing\.rect\]/);
-  assert.match(main, /editedWidth - initialWidth/);
-  assert.match(main, /targetRect:/);
-  assert.doesNotMatch(main, /textarea\.scrollHeight/);
+test('Fabric is removed from dependencies and generated vendor assets', () => {
+  assert.equal(pkg.devDependencies.fabric, undefined);
+  assert.doesNotMatch(vendorScript, /fabric/i);
 });

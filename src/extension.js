@@ -1,13 +1,13 @@
 'use strict';
 
 const vscode = require('vscode');
-const { PdfEditorProvider, VIEW_TYPE } = require('./pdf-editor-provider');
+const { PdfViewerProvider, VIEW_TYPE } = require('./pdf-editor-provider');
 
 /**
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
-  const provider = new PdfEditorProvider(context);
+  const provider = new PdfViewerProvider(context);
 
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(VIEW_TYPE, provider, {

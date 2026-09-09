@@ -1,8 +1,8 @@
 {
   "name": "pdf-viewer-editor",
-  "displayName": "PDF Viewer & Editor",
-  "description": "A focused visual PDF editor with direct text selection, real reflow, image editing, and editable tables in Visual Studio Code.",
-  "version": "0.0.7",
+  "displayName": "PDF Viewer (Read Only)",
+  "description": "A secure, local, read-only PDF viewer for Visual Studio Code with thumbnails, zoom, search, and password support.",
+  "version": "0.0.8",
   "publisher": "suzdalenko-dev",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -20,10 +20,9 @@
   "keywords": [
     "pdf",
     "viewer",
-    "editor",
-    "text",
-    "reflow",
-    "table"
+    "read-only",
+    "readonly",
+    "preview"
   ],
   "engines": {
     "vscode": "^1.96.0"
@@ -48,7 +47,7 @@
     "customEditors": [
       {
         "viewType": "pdfViewerEditor.editor",
-        "displayName": "PDF Viewer & Editor",
+        "displayName": "PDF Viewer (Read Only)",
         "selector": [
           {
             "filenamePattern": "*.pdf"
@@ -63,8 +62,8 @@
     "commands": [
       {
         "command": "pdfViewerEditor.openWith",
-        "title": "Open with PDF Viewer & Editor",
-        "category": "PDF Viewer & Editor",
+        "title": "Open with PDF Viewer (Read Only)",
+        "category": "PDF Viewer",
         "icon": "$(file-pdf)"
       }
     ],
@@ -78,7 +77,7 @@
       ]
     },
     "configuration": {
-      "title": "PDF Viewer & Editor",
+      "title": "PDF Viewer",
       "properties": {
         "pdfViewerEditor.defaultZoom": {
           "type": "number",
@@ -93,19 +92,6 @@
           "minimum": 1000000,
           "maximum": 100000000,
           "description": "Maximum number of pixels used to render a page."
-        },
-        "pdfViewerEditor.defaultSaveMode": {
-          "type": "string",
-          "enum": [
-            "incremental",
-            "clean"
-          ],
-          "default": "incremental",
-          "enumDescriptions": [
-            "Preserve the original file and append changes.",
-            "Garbage-collect and compress the complete PDF."
-          ],
-          "description": "Default serialization mode used while editing."
         }
       }
     }
@@ -124,7 +110,6 @@
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "^3.9.2",
     "eslint": "^9.39.0",
-    "fabric": "7.4.0",
     "mupdf": "1.28.0",
     "typescript": "^5.9.0"
   },

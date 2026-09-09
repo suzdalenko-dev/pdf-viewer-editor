@@ -34,8 +34,7 @@ body {
 
 button,
 input,
-select,
-textarea {
+select {
   min-height: 28px;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -56,8 +55,7 @@ button:hover:not(:disabled) {
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
+select:focus-visible {
   outline: 1px solid var(--focus);
   outline-offset: 1px;
 }
@@ -70,12 +68,6 @@ button:disabled {
 input,
 select {
   padding: 3px 7px;
-}
-
-input[type="color"] {
-  width: 34px;
-  min-height: 26px;
-  padding: 2px;
 }
 
 .hidden {
@@ -96,30 +88,24 @@ input[type="color"] {
 
 .app {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   width: 100%;
   height: 100%;
 }
 
-.topbar,
-.editbar,
-.selection-context {
+.topbar {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   padding: 6px 8px;
+  overflow-x: auto;
   border-bottom: 1px solid var(--border);
   background: var(--toolbar);
-}
-
-.topbar {
-  overflow-x: auto;
   scrollbar-width: thin;
 }
 
-.toolbar-group,
-.context-row {
+.toolbar-group {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -153,10 +139,6 @@ input[type="color"] {
   background: var(--primary-hover);
 }
 
-.danger-button:not(:disabled) {
-  color: var(--danger);
-}
-
 .page-number-label {
   display: flex;
   align-items: center;
@@ -183,70 +165,31 @@ input[type="color"] {
   width: 100%;
 }
 
-.editbar {
-  min-height: 42px;
-  overflow-x: auto;
-}
-
-.tool-button.active,
-.toggle-button[aria-pressed="true"] {
-  border-color: var(--focus);
-  color: var(--vscode-button-foreground);
-  background: var(--primary);
-}
-
-.tool-hint {
-  margin-left: 8px;
-  overflow: hidden;
-  color: var(--muted);
-  text-overflow: ellipsis;
+.readonly-badge,
+.version-badge {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
   white-space: nowrap;
 }
 
-.selection-context {
-  min-height: 42px;
-  overflow-x: auto;
-  background: var(--panel);
+.readonly-badge {
+  border-color: color-mix(in srgb, var(--focus) 55%, var(--border));
+  color: var(--foreground);
+  background: var(--selection);
+  font-weight: 600;
 }
 
-.context-row {
-  width: 100%;
-}
-
-.context-row label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.version-badge {
   color: var(--muted);
-  white-space: nowrap;
-}
-
-#text-font-family {
-  width: 116px;
-}
-
-#text-font-size {
-  width: 68px;
-}
-
-#text-alignment {
-  width: 92px;
-}
-
-#table-rows,
-#table-columns,
-#table-border-width {
-  width: 62px;
-}
-
-.context-help {
-  color: var(--muted);
+  font-size: 11px;
 }
 
 .workspace {
   display: flex;
-  min-height: 0;
   min-width: 0;
+  min-height: 0;
 }
 
 .pages-sidebar {
@@ -325,226 +268,37 @@ input[type="color"] {
 .page-stage {
   position: relative;
   margin: 0 auto;
-  overflow: visible;
+  overflow: hidden;
   background: #fff;
   box-shadow: 0 3px 16px rgba(0, 0, 0, 0.35);
 }
 
 #pdf-canvas,
-.text-layer,
-.insertion-layer,
-.page-stage > .canvas-container {
-  position: absolute !important;
+.search-layer {
+  position: absolute;
   inset: 0;
-}
-
-.page-stage > .canvas-container,
-.page-stage > .canvas-container .lower-canvas,
-.page-stage > .canvas-container .upper-canvas {
-  left: 0 !important;
-  top: 0 !important;
-  margin: 0 !important;
 }
 
 #pdf-canvas {
   z-index: 1;
 }
 
-.text-layer {
-  z-index: 4;
+.search-layer {
+  z-index: 2;
   overflow: hidden;
   pointer-events: none;
 }
 
-.text-layer-line {
+.search-highlight {
   position: absolute;
-  z-index: 1;
-  overflow: hidden;
-  color: transparent;
+  border: 1px solid rgba(160, 120, 0, 0.85);
   border-radius: 2px;
-  line-height: 1;
-  white-space: pre;
-  cursor: text;
-  pointer-events: auto;
-  user-select: none;
-  touch-action: none;
-  transform-origin: 0 0;
-  transition: background-color 80ms ease;
+  background: rgba(255, 215, 0, 0.28);
 }
 
-.text-layer-line:hover {
-  background: color-mix(in srgb, var(--focus) 9%, transparent);
-}
-
-.text-range-highlight {
-  position: absolute;
-  z-index: 0;
-  box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--focus) 82%, transparent);
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--focus) 28%, transparent);
-  pointer-events: none;
-}
-
-.text-layer.resize-mode,
-.text-layer.resize-mode .text-layer-line,
-.insertion-layer.resize-mode {
-  pointer-events: none;
-  user-select: none;
-}
-
-.text-layer.placement-mode .text-layer-line {
-  pointer-events: none;
-  user-select: none;
-}
-
-.page-stage > .canvas-container {
-  z-index: 3;
-}
-
-.insertion-layer {
-  z-index: 5;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.insertion-marker {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  min-height: 18px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  color: var(--focus);
-  background: transparent;
-  opacity: 0.32;
-  pointer-events: auto;
-  transition: opacity 100ms ease;
-}
-
-.insertion-marker:hover,
-.insertion-marker:focus-visible {
-  border: 0;
-  background: transparent;
-  opacity: 1;
-}
-
-.insertion-layer.disabled .insertion-marker {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.insertion-plus {
-  display: grid;
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  border-radius: 50%;
-  color: #fff;
-  background: var(--focus);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 18px;
-}
-
-.insertion-guide {
-  flex: 1 1 auto;
-  height: 1px;
-  margin-left: 4px;
-  background: var(--focus);
-}
-
-.insert-menu {
-  position: absolute;
-  z-index: 7;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 220px;
-  padding: 5px;
-  border: 1px solid var(--focus);
-  border-radius: 5px;
-  color: var(--foreground);
-  background: var(--surface);
-  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.28);
-}
-
-.insert-menu span {
-  margin-right: 3px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.insert-menu button {
-  min-height: 25px;
-  padding: 3px 8px;
-}
-
-.edit-range-button {
-  position: absolute;
-  z-index: 7;
-  width: 126px;
-  min-height: 28px;
-  color: var(--primary-text);
-  background: var(--primary);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.28);
-}
-
-.edit-range-button:hover:not(:disabled) {
-  background: var(--primary-hover);
-}
-
-.block-editor {
-  position: absolute;
-  z-index: 8;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  overflow: visible;
-  background: transparent;
-}
-
-.block-editor textarea {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  min-width: 24px;
-  min-height: 18px;
-  resize: both;
-  padding: 2px 3px;
-  overflow: auto;
-  border: 2px solid var(--focus);
-  border-radius: 2px;
-  outline: 0;
-  color: #111;
-  background: rgba(255, 255, 255, 0.98);
-  line-height: 1.18;
-  white-space: pre-wrap;
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.22);
-}
-
-.block-editor textarea:focus {
-  outline: 0;
-  border-color: var(--focus);
-}
-
-.block-editor-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  width: max-content;
-  min-width: 100%;
-  padding-top: 5px;
-}
-
-.block-editor-actions span {
-  margin-right: auto;
-  color: var(--muted);
-  font-size: 11px;
+.search-highlight.current {
+  border: 2px solid #ff8c00;
+  background: rgba(255, 165, 0, 0.38);
 }
 
 .statusbar {
@@ -597,7 +351,7 @@ input[type="color"] {
   background: rgba(0, 0, 0, 0.5);
 }
 
-#editor-dialog {
+#viewer-dialog {
   display: block;
   width: min(430px, calc(100vw - 36px));
   max-height: calc(100vh - 48px);
@@ -610,11 +364,11 @@ input[type="color"] {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 
-#editor-dialog form {
+#viewer-dialog form {
   padding: 18px;
 }
 
-#editor-dialog h2 {
+#viewer-dialog h2 {
   margin: 0 0 14px;
   font-size: 17px;
 }
@@ -627,12 +381,6 @@ input[type="color"] {
 .dialog-content label {
   display: grid;
   gap: 5px;
-}
-
-.dialog-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
 }
 
 .dialog-actions {
@@ -648,24 +396,7 @@ input[type="color"] {
     min-width: 138px;
   }
 
-  .tool-hint,
-  .context-help {
-    display: none;
-  }
-
   .page-viewport {
     padding: 16px;
   }
-}
-
-
-.version-badge {
-  flex: 0 0 auto;
-  margin-left: auto;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
 }

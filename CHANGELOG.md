@@ -2,6 +2,28 @@
 
 Todos los cambios relevantes de este proyecto se documentan aquí.
 
+## 0.0.8 - 2026-09-09
+
+### Cambiado
+
+- La extensión pasa a ser un visor de PDF estrictamente de solo lectura.
+- El proveedor personalizado deja de registrar el ciclo editable de VS Code: no hay cambios, guardado, Guardar como, copias de seguridad, deshacer ni rehacer.
+- La interfaz conserva miniaturas, navegación, zoom, búsqueda y apertura mediante contraseña.
+- Se muestra de forma permanente el indicador `Solo lectura` junto a `v0.0.8`.
+
+### Eliminado
+
+- Edición, inserción y eliminación de texto, imágenes, tablas, anotaciones y páginas.
+- Botones Guardar, Deshacer y Rehacer, barra de herramientas de edición y atajos modificadores.
+- Exportación, serialización PDF, diario de operaciones de MuPDF y mensajes de actualización del webview.
+- Fabric.js y la configuración `pdfViewerEditor.defaultSaveMode`.
+
+### Seguridad y pruebas
+
+- El protocolo entre webview y extensión usa una lista explícita de mensajes permitidos y rechaza cualquier orden desconocida.
+- Las pruebas verifican que el proveedor no puede escribir archivos y que el motor público no expone operaciones mutables.
+- El pipeline continúa validando lint, tipos, pruebas y el paquete `pdf-viewer-editor-0.0.8.vsix`.
+
 ## 0.0.7 - 2026-08-24
 
 ### Corregido

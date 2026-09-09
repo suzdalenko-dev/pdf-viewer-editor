@@ -1,10 +1,10 @@
 # Contribuir
 
-Gracias por ayudar a mejorar PDF Viewer & Editor.
+Gracias por ayudar a mejorar PDF Viewer.
 
 1. Crea una rama desde `main`.
 2. Instala dependencias con `npm install`.
-3. Implementa un cambio acotado en JavaScript.
+3. Implementa un cambio acotado en JavaScript sin añadir operaciones que modifiquen o escriban PDFs.
 4. Añade o actualiza pruebas.
 5. Ejecuta `npm run check` y `npm run package`.
 6. Abre un pull request explicando el comportamiento y cómo se verificó.
