@@ -22,7 +22,8 @@
     "viewer",
     "read-only",
     "readonly",
-    "preview"
+    "preview",
+    "suzdalenko"
   ],
   "engines": {
     "vscode": "^1.96.0"
