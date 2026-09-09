@@ -35,17 +35,6 @@ function copyVendors() {
     path.join(mupdfDestination, 'LICENSE')
   );
 
-  const fabricRoot = path.join(projectRoot, 'node_modules', 'fabric');
-  const fabricDestination = path.join(vendorRoot, 'fabric');
-  copyFile(
-    path.join(fabricRoot, 'dist', 'index.min.js'),
-    path.join(fabricDestination, 'fabric.min.js')
-  );
-  copyFile(
-    path.join(fabricRoot, 'LICENSE'),
-    path.join(fabricDestination, 'LICENSE')
-  );
-
   console.log('Vendor assets copied to media/vendor.');
 }
 

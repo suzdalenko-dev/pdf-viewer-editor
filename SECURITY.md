@@ -2,7 +2,7 @@
 
 ## Versiones compatibles
 
-Mientras `0.0.1` sea la versión publicada, los problemas de seguridad se corregirán en la rama de desarrollo activa y en la siguiente versión disponible.
+La versión `0.0.8` es la versión compatible. Los problemas de seguridad se corrigen en la rama de desarrollo activa y en la siguiente versión disponible.
 
 ## Informar de una vulnerabilidad
 
@@ -20,6 +20,8 @@ No publiques PDFs sensibles ni contraseñas en una incidencia. Usa la función p
 - El JavaScript incluido en los PDFs se desactiva con MuPDF.
 - El webview aplica una Content Security Policy restrictiva.
 - Las contraseñas no se guardan en disco ni se envían al host de la extensión.
-- Los datos OCR de castellano e inglés están incluidos. Otros idiomas pueden descargarse desde la URL configurada por el usuario.
+- El proveedor usa la API de editor personalizado de solo lectura y no implementa operaciones de guardado, copia de seguridad, deshacer o rehacer.
+- El motor del webview no expone edición ni serialización de documentos.
+- Los mensajes procedentes del webview se validan mediante una lista explícita de operaciones permitidas.
 
-Modificar un PDF firmado invalida su firma digital. La redacción solo es permanente después de ejecutar **Apply redactions permanently** y guardar el resultado.
+La extensión `0.0.8` no modifica el archivo PDF, por lo que abrir un documento firmado no altera su firma digital.

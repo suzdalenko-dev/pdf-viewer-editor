@@ -1,6 +1,6 @@
 # Third-party notices
 
-PDF Viewer & Editor incluye las siguientes dependencias de ejecución. Las copias de sus licencias se empaquetan dentro de `media/vendor` durante `npm install`/`npm run prepare`.
+PDF Viewer incluye la siguiente dependencia de ejecución. Una copia de su licencia se empaqueta dentro de `media/vendor` durante `npm install`/`npm run prepare`.
 
 ## MuPDF.js
 
@@ -9,10 +9,4 @@ PDF Viewer & Editor incluye las siguientes dependencias de ejecución. Las copia
 - Copyright: Artifex Software, Inc.
 - Licencia: GNU Affero General Public License v3.0 o posterior.
 
-## Fabric.js
-
-- Proyecto: https://fabricjs.com/
-- Paquete: `fabric` 7.4.0
-- Licencia: MIT.
-
-Los nombres de productos y proyectos pertenecen a sus respectivos titulares. Esta extensión no está afiliada ni respaldada oficialmente por Artifex ni Fabric.js.
+Los nombres de productos y proyectos pertenecen a sus respectivos titulares. Esta extensión no está afiliada ni respaldada oficialmente por Artifex.
